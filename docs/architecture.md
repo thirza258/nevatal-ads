@@ -10,7 +10,7 @@ catalog at `/`, a learner area, and an authoring/review workflow in the back
 office. The operations dashboard is at `/dashboard`. Learning has separate roles
 and tables but shares the SQLite database, API process, and React build.
 
-The production origin in this repository is **https://ads.nevatal.id**.
+The production origin in this repository is **https://marketing.nevatal.id**.
 
 ## Components
 
@@ -156,7 +156,7 @@ The API never returns password hashes or salts, and settings never expose
 ### 2. Delivery configuration
 
 1. The host page loads
-   `https://ads.nevatal.id/sdk/v1/adcontrol.js` with a public site key.
+   `https://marketing.nevatal.id/sdk/v1/adcontrol.js` with a public site key.
 2. The SDK calls
    `GET /delivery/v1/sites/<public_site_key>/config` with `credentials: omit` and
    no cookies.
@@ -252,6 +252,8 @@ users ──< learning_enrollments
 users ──< learning_course_revisions (created_by)
 
 audit_logs (append-only from the API's perspective)
+
+partner_inquiries (public applications; no account or tenant link)
 ```
 
 The advertising and learning tables share the `users` table and session store but
@@ -277,6 +279,7 @@ use distinct roles and authorization helpers. Learner accounts have no
 | `learning_lesson_progress` | enrollment_id, lesson_id, completed_at | Unique per enrollment/lesson |
 | `learning_quiz_attempts` | enrollment_id, user_id, course_id, lesson_id, quiz_id, score, passed, counts | Appended attempts; used for aggregate reporting |
 | `learning_course_revisions` | course_id, version, created_by, note, snapshot, created_at | Immutable snapshot at each publication |
+| `partner_inquiries` | kind (`publisher`/`client`), name, email, company, website, message, status, timestamps | Public marketing-site applications; admin-only review; never provisions an account |
 | `audit_logs` | actor, action, entity_type, entity_id, details, created_at | Sensitive-change trail; admin-only read |
 | `sessions` | token, user_id, expires_at | No secrets are returned to clients |
 
@@ -390,7 +393,7 @@ Running multiple API replicas against the same database file is unsupported.
 ## Deployment topology
 
 ```
-DNS: ads.nevatal.id ──► Cloudflare edge ──► tunnel ──► cloudflared
+DNS: marketing.nevatal.id ──► Cloudflare edge ──► tunnel ──► cloudflared
      ──► 127.0.0.1:18080 nginx ──► api:8088
 ```
 

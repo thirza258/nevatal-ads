@@ -796,6 +796,14 @@ bool is_valid_email(const std::string& value) {
     return std::regex_match(value, re);
 }
 
+bool is_valid_partner_inquiry_kind(const std::string& value) {
+    return value == "publisher" || value == "client";
+}
+
+bool is_valid_partner_inquiry_status(const std::string& value) {
+    return value == "new" || value == "reviewing" || value == "closed";
+}
+
 bool is_valid_publisher_status(const std::string& value) {
     return value == "pending" || value == "active" ||
            value == "suspended" || value == "rejected";
@@ -1297,14 +1305,14 @@ nlohmann::json learning_authoring_course_json(Database& db, const LearningCourse
 }
 
 std::string learning_public_base_url() {
-    std::string base = env_or("PUBLIC_BASE_URL", "https://ads.nevatal.id");
+    std::string base = env_or("PUBLIC_BASE_URL", "https://marketing.nevatal.id");
     base = utils::trim_copy(base);
     while (!base.empty() && base.back() == '/') base.pop_back();
     // Canonical SEO URLs must use HTTPS. An accidentally configured http://
     // origin falls back to the production default instead of emitting
     // inconsistent or downgraded canonicals, sitemap entries, and robots hints.
     const bool https = utils::to_lower_copy(base).rfind("https://", 0) == 0;
-    if (!https || !utils::is_safe_url(base)) return "https://ads.nevatal.id";
+    if (!https || !utils::is_safe_url(base)) return "https://marketing.nevatal.id";
     return base;
 }
 
@@ -3881,6 +3889,102 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
     });
 
     // ==========================================
+    // Partner applications (public publisher/client inquiries)
+    // ==========================================
+    svr.Get("/api/v1/partner-inquiries", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        std::optional<std::string> kind;
+        std::optional<std::string> status;
+        if (req.has_param("kind")) {
+            kind = utils::to_lower_copy(utils::trim_copy(req.get_param_value("kind")));
+            if (!is_valid_partner_inquiry_kind(*kind)) {
+                json_error(res, 400, "kind must be publisher or client");
+                return;
+            }
+        }
+        if (req.has_param("status")) {
+            status = utils::to_lower_copy(utils::trim_copy(req.get_param_value("status")));
+            if (!is_valid_partner_inquiry_status(*status)) {
+                json_error(res, 400, "status must be new, reviewing, or closed");
+                return;
+            }
+        }
+
+        int limit = 100;
+        int offset = 0;
+        if (req.has_param("limit") && !parse_int(req.get_param_value("limit"), limit)) {
+            json_error(res, 400, "limit must be an integer");
+            return;
+        }
+        if (req.has_param("offset") && !parse_int(req.get_param_value("offset"), offset)) {
+            json_error(res, 400, "offset must be an integer");
+            return;
+        }
+        if (limit < 1) limit = 1;
+        if (limit > 200) limit = 200;
+        if (offset < 0) offset = 0;
+
+        auto inquiries = db_->list_partner_inquiries(kind, status, limit, offset);
+        nlohmann::json list = nlohmann::json::array();
+        for (const auto& inquiry : inquiries) list.push_back(inquiry.to_json());
+        res.set_content(nlohmann::json({{"inquiries", list}}).dump(), "application/json");
+    });
+
+    svr.Patch(R"(/api/v1/partner-inquiries/([^/]+))", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        const std::string id = req.matches[1];
+        if (id.empty() || id.size() > 80) {
+            json_error(res, 400, "Invalid inquiry id");
+            return;
+        }
+        auto existing = db_->get_partner_inquiry(id);
+        if (!existing) {
+            json_error(res, 404, "Inquiry not found");
+            return;
+        }
+
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body, 4 * 1024)) return;
+        std::string status;
+        try {
+            if (!body.contains("status") || !body["status"].is_string()) {
+                json_error(res, 400, "status is required");
+                return;
+            }
+            status = utils::to_lower_copy(utils::trim_copy(body["status"].get<std::string>()));
+        } catch (...) {
+            json_error(res, 400, "Invalid status");
+            return;
+        }
+        if (!is_valid_partner_inquiry_status(status)) {
+            json_error(res, 400, "status must be new, reviewing, or closed");
+            return;
+        }
+        if (!db_->update_partner_inquiry_status(id, status)) {
+            json_error(res, 404, "Inquiry not found");
+            return;
+        }
+
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "PARTNER_INQUIRY_STATUS_UPDATED";
+        al.entity_type = "partner_inquiry";
+        al.entity_id = id;
+        al.details = nlohmann::json({{"from", existing->status}, {"to", status}}).dump();
+        db_->record_audit_log(al);
+
+        auto updated = db_->get_partner_inquiry(id);
+        res.set_content(nlohmann::json({{"inquiry", updated ? updated->to_json() : existing->to_json()}}).dump(),
+                        "application/json");
+    });
+
+    // ==========================================
     // Phase 3: public learning catalog and SEO
     // ==========================================
     svr.Get("/sitemap.xml", [this](const httplib::Request& req, httplib::Response& res) {
@@ -3906,6 +4010,8 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
         add_url("/courses", "", "0.8");
         add_url("/topics", "", "0.7");
         add_url("/learning-paths", "", "0.7");
+        add_url("/become-a-publisher", "", "0.6");
+        add_url("/become-a-client", "", "0.6");
         for (const auto& topic : topics) {
             add_url("/topics/" + topic.slug, topic.updated_at, "0.6");
         }
@@ -3930,6 +4036,8 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
              << "Allow: /courses\n"
              << "Allow: /topics\n"
              << "Allow: /learning-paths\n"
+             << "Allow: /become-a-publisher\n"
+             << "Allow: /become-a-client\n"
              // Private app shells are not content, but keeping them out of
              // search results avoids indexing sign-in and authoring screens.
              // Access control is still enforced server-side.
@@ -4180,6 +4288,122 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
             {"expires_at", expires_at},
             {"user", user.to_json()}
         }).dump(), "application/json");
+    });
+
+    // Public publisher/client application form. This is intentionally
+    // unauthenticated and only stores the submission for administrator review;
+    // it never creates an account, publisher, site, or campaign.
+    svr.Post("/api/v3/partners/inquiries", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        const std::string ip = client_ip(req);
+        // The origin bucket is shared by all visitors behind Cloudflare Tunnel,
+        // so keep this high enough for a launch burst; per-client limits belong
+        // in a Cloudflare WAF rule for this path.
+        if (!allow_request("partner-inquiry:" + ip, 20, 600)) {
+            res.set_header("Retry-After", "600");
+            json_error(res, 429, "Too many applications. Try again later.");
+            return;
+        }
+
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body, 16 * 1024)) return;
+
+        auto read_field = [&](const char* key, std::string& out, bool lower = false) -> bool {
+            out.clear();
+            if (!body.contains(key) || body[key].is_null()) return true;
+            if (!body[key].is_string()) return false;
+            out = utils::trim_copy(body[key].get<std::string>());
+            if (lower) out = utils::to_lower_copy(out);
+            return true;
+        };
+
+        std::string kind;
+        std::string name;
+        std::string email;
+        std::string company;
+        std::string website;
+        std::string message;
+        std::string honeypot;
+        try {
+            if (!read_field("kind", kind, true) ||
+                !read_field("name", name) ||
+                !read_field("email", email, true) ||
+                !read_field("company", company) ||
+                !read_field("website", website) ||
+                !read_field("message", message) ||
+                !read_field("fax", honeypot)) {
+                json_error(res, 400, "Invalid field type");
+                return;
+            }
+        } catch (...) {
+            json_error(res, 400, "Invalid fields");
+            return;
+        }
+
+        // A hidden "fax" field is never shown to a person. Bots that fill every
+        // input get a normal-looking success response without a stored record.
+        if (!honeypot.empty()) {
+            res.status = 201;
+            res.set_content(nlohmann::json({{"status", "received"}}).dump(), "application/json");
+            return;
+        }
+
+        if (!is_valid_partner_inquiry_kind(kind)) {
+            json_error(res, 400, "kind must be publisher or client");
+            return;
+        }
+        if (name.size() < 2 || too_long(name, 120)) {
+            json_error(res, 400, "name must be between 2 and 120 characters");
+            return;
+        }
+        if (!is_valid_email(email)) {
+            json_error(res, 400, "Enter a valid email address");
+            return;
+        }
+        if (too_long(company, 160)) {
+            json_error(res, 400, "company must be 160 characters or fewer");
+            return;
+        }
+        if (too_long(website, 2048)) {
+            json_error(res, 400, "website must be 2048 characters or fewer");
+            return;
+        }
+        if (!website.empty() && !utils::is_safe_url(website)) {
+            json_error(res, 400, "website must be a valid http or https URL");
+            return;
+        }
+        if (kind == "publisher" && website.empty()) {
+            json_error(res, 400, "website is required for publisher applications");
+            return;
+        }
+        if (message.size() < 20 || too_long(message, 4000)) {
+            json_error(res, 400, "message must be between 20 and 4000 characters");
+            return;
+        }
+
+        PartnerInquiry inquiry;
+        inquiry.kind = kind;
+        inquiry.name = name;
+        inquiry.email = email;
+        inquiry.company = company;
+        inquiry.website = website;
+        inquiry.message = message;
+        inquiry.status = "new";
+        if (!db_->create_partner_inquiry(inquiry)) {
+            json_error(res, 500, "Could not save the application");
+            return;
+        }
+
+        AuditLog al;
+        al.actor = email;
+        al.action = "PARTNER_INQUIRY_RECEIVED";
+        al.entity_type = "partner_inquiry";
+        al.entity_id = inquiry.id;
+        al.details = nlohmann::json({{"kind", kind}}).dump();
+        db_->record_audit_log(al);
+
+        res.status = 201;
+        res.set_content(nlohmann::json({{"status", "received"}}).dump(), "application/json");
     });
 
     svr.Get("/api/v3/learning/me/export", [this](const httplib::Request& req, httplib::Response& res) {

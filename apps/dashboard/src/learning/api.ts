@@ -16,6 +16,8 @@ import {
   LearningPathDetailResponse,
   LearningPathsResponse,
   MyLearningResponse,
+  PartnerInquiryInput,
+  PartnerInquiryResponse,
   QuizAttemptResponse,
   TopicDetailResponse,
   TopicListResponse,
@@ -109,6 +111,14 @@ export const learningApi = {
     });
     setStoredToken(data.token);
     return data;
+  },
+
+  async submitPartnerInquiry(input: PartnerInquiryInput): Promise<PartnerInquiryResponse> {
+    return request<PartnerInquiryResponse>('/api/v3/partners/inquiries', {
+      method: 'POST',
+      body: JSON.stringify(input),
+      skipUnauthorizedEvent: true,
+    });
   },
 
   async logout(): Promise<void> {

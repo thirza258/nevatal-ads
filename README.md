@@ -7,7 +7,7 @@ controls are managed from a React dashboard and propagate to live sites without 
 redeploy. The same React deployment serves a public course catalog at `/` and the
 operations dashboard at `/dashboard`.
 
-The production origin for this deployment is **https://ads.nevatal.id**.
+The production origin for this deployment is **https://marketing.nevatal.id**.
 
 ## What it does
 
@@ -56,6 +56,10 @@ The production origin for this deployment is **https://ads.nevatal.id**.
   structured authoring/review/publication studio with version and freshness
   tracking. Public SEO pages, canonical URLs, Schema.org course metadata,
   `/sitemap.xml`, and `/robots.txt` are included.
+- **Partner intake** (Phase 4): public `/become-a-publisher` and
+  `/become-a-client` pages with validated, rate-limited application forms. Leads
+  are stored in SQLite and reviewed in an administrator-only **Inquiries** view;
+  nothing is provisioned automatically.
 
 ## Stack
 
@@ -129,7 +133,7 @@ docker compose -f deploy/docker-compose.yml down
 4. **Websites → Integration snippet.** Copy the generated snippet, or use:
    ```html
    <script async
-           src="https://ads.nevatal.id/sdk/v1/adcontrol.js"
+           src="https://marketing.nevatal.id/sdk/v1/adcontrol.js"
            data-site-key="site_pub_..."></script>
    ```
 5. Load the page. Delivery configuration refreshes at least every 30 seconds, so
@@ -254,7 +258,7 @@ the full behavior, security boundaries, and operational checks.
 
 `PUBLIC_BASE_URL` sets the canonical origin used by `/sitemap.xml`, `/robots.txt`,
 and client-side canonical metadata. It must be an HTTPS origin with no path or
-trailing slash; the default is `https://ads.nevatal.id`. The sitemap includes
+trailing slash; the default is `https://marketing.nevatal.id`. The sitemap includes
 only published topics, courses, and paths. Robots allows public learning pages
 for all crawlers and excludes private app/API shells from indexing, while every
 private endpoint still enforces authentication and authorization server-side.
@@ -273,33 +277,51 @@ private endpoint still enforces authentication and authorization server-side.
 - Route metadata is client-rendered. The sitemap and canonical URLs are
   server-generated, but full server-side rendering is a later enhancement.
 
-## Production on ads.nevatal.id with Cloudflare Tunnel
+## Partner applications (Phase 4)
+
+The public navbar links to **For publishers** (`/become-a-publisher`) and **For
+clients** (`/become-a-client`). Each page explains the offering and submits a
+short application: name, email, company, website, and a message. Applications are
+validated, capped at 16 KiB, limited to 20 per origin bucket per 10 minutes, and
+protected by a hidden bot-trap field.
+
+A submission is stored in `partner_inquiries` and shown to administrators in the
+operations dashboard at `/dashboard#inquiries`. Administrators can search and
+filter by type and status, reply by email, and mark an inquiry `new`,
+`reviewing`, or `closed`. Receipt and status changes are audited. Applications
+never create a user, publisher, site, campaign, or session; onboarding remains the
+manual, reviewed procedure described above. See
+[docs/api.md](docs/api.md#partner-inquiries) and
+[docs/security.md](docs/security.md#partner-inquiry-data) for the data-handling
+details.
+
+## Production on marketing.nevatal.id with Cloudflare Tunnel
 
 The compose stack serves plain HTTP on `127.0.0.1:${HTTP_PORT}` only by default
 (`18080` unless overridden). A host-installed `cloudflared` connector reaches
-Cloudflare over an outbound-only tunnel and forwards `https://ads.nevatal.id` to
+Cloudflare over an outbound-only tunnel and forwards `https://marketing.nevatal.id` to
 that loopback port. No inbound 80/443 ports and no origin certificate are needed
 for the tunnel.
 
 The short version:
 
 1. Create a named tunnel in Cloudflare Zero Trust or with `cloudflared tunnel
-   create`, and route `ads.nevatal.id` to it.
+   create`, and route `marketing.nevatal.id` to it.
 2. Configure the public hostname to forward to `http://127.0.0.1:18080`. A
    template is at
    [deploy/cloudflared/config.yml.example](deploy/cloudflared/config.yml.example).
 3. Start the stack with a strong `SECRET_KEY`, `ADMIN_EMAIL`, and
-   `ADMIN_PASSWORD` in `deploy/.env`. Set `PUBLIC_BASE_URL=https://ads.nevatal.id`
+   `ADMIN_PASSWORD` in `deploy/.env`. Set `PUBLIC_BASE_URL=https://marketing.nevatal.id`
    so learning canonicals, the sitemap, and robots use the public HTTPS origin.
 4. Run the tunnel connector on the host, then verify
-   `curl -fsS https://ads.nevatal.id/readyz`. Confirm `https://ads.nevatal.id/`
-   serves the learning catalog, `https://ads.nevatal.id/dashboard` serves the
+   `curl -fsS https://marketing.nevatal.id/readyz`. Confirm `https://marketing.nevatal.id/`
+   serves the learning catalog, `https://marketing.nevatal.id/dashboard` serves the
    operations app, and `/sitemap.xml` and `/robots.txt` return `200`.
 5. Enable **Always Use HTTPS** and HSTS at Cloudflare only after verification.
    Add a Cloudflare WAF rate limit for `/api/v1/auth/login` and
    `/api/v3/auth/register`; the tunnel connector is a shared origin peer, so
    origin-side per-IP buckets are not per-visitor.
-6. Add the publisher origins — **not** `ads.nevatal.id` — to the allowed domains
+6. Add the publisher origins — **not** `marketing.nevatal.id` — to the allowed domains
    for each website.
 
 Step-by-step commands, systemd setup, firewall rules, and troubleshooting are in

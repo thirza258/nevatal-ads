@@ -22,7 +22,7 @@ services:
       BACKUP_RETENTION: ${BACKUP_RETENTION:-14}
       # Canonical public origin used in sitemap.xml, robots.txt, and learning
       # metadata. Never include a path or trailing slash.
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://ads.nevatal.id}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://marketing.nevatal.id}
     volumes:
       - ../data:/data
       - ../apps/sdk/dist:/app/sdk:ro

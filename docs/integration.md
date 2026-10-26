@@ -4,7 +4,7 @@ This guide is for the sites you own that display AdControl ads. The host page
 only needs a script tag and one container element per placement. All creative,
 destination, schedule, and pause changes happen in the dashboard.
 
-Production assets are served from **https://ads.nevatal.id**.
+Production assets are served from **https://marketing.nevatal.id**.
 
 ## Prerequisites
 
@@ -69,7 +69,7 @@ client-supplied destination and no query-string override. See
 
 ```html
 <script async
-        src="https://ads.nevatal.id/sdk/v1/adcontrol.js"
+        src="https://marketing.nevatal.id/sdk/v1/adcontrol.js"
         data-site-key="site_pub_your_public_key"></script>
 ```
 
@@ -97,11 +97,11 @@ run normally and ad containers stay empty.
 For a bundler or a tag manager that cannot use the script attributes:
 
 ```html
-<script src="https://ads.nevatal.id/sdk/v1/adcontrol.js"></script>
+<script src="https://marketing.nevatal.id/sdk/v1/adcontrol.js"></script>
 <script>
   AdControl.init({
     siteKey: 'site_pub_your_public_key',
-    // apiBase: 'https://ads.nevatal.id', // only when the assets are elsewhere
+    // apiBase: 'https://marketing.nevatal.id', // only when the assets are elsewhere
     refreshIntervalMs: 30000, // clamped to 15000–300000
     maxStaleMs: 300000,       // clamped to 30000–3600000
   });
@@ -213,10 +213,10 @@ markup. With a strict CSP, allow the AdControl origins explicitly:
 ```http
 Content-Security-Policy:
   default-src 'self';
-  script-src 'self' https://ads.nevatal.id;
-  style-src 'self' https://ads.nevatal.id;
-  img-src 'self' https://ads.nevatal.id https://img.example.com;
-  connect-src 'self' https://ads.nevatal.id;
+  script-src 'self' https://marketing.nevatal.id;
+  style-src 'self' https://marketing.nevatal.id;
+  img-src 'self' https://marketing.nevatal.id https://img.example.com;
+  connect-src 'self' https://marketing.nevatal.id;
   object-src 'none';
   base-uri 'self';
   frame-ancestors 'none';
@@ -243,14 +243,14 @@ SRI pins the exact SDK bytes. Compute the hash after every AdControl upgrade and
 update the publisher HTML at the same time:
 
 ```bash
-curl -fsS https://ads.nevatal.id/sdk/v1/adcontrol.js \
+curl -fsS https://marketing.nevatal.id/sdk/v1/adcontrol.js \
   | openssl dgst -sha384 -binary \
   | openssl base64 -A
 ```
 
 ```html
 <script async
-        src="https://ads.nevatal.id/sdk/v1/adcontrol.js"
+        src="https://marketing.nevatal.id/sdk/v1/adcontrol.js"
         integrity="sha384-REPLACE_WITH_THE_COMPUTED_HASH"
         crossorigin="anonymous"
         data-site-key="site_pub_your_public_key"></script>

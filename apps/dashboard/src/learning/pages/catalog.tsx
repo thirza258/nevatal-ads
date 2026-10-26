@@ -1010,6 +1010,18 @@ export const PrivacyPage: React.FC = () => {
             </ul>
           </section>
 
+          <section aria-labelledby="privacy-partner">
+            <h2 id="privacy-partner" className="text-lg font-bold text-slate-950">Partner applications</h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              If you apply through the <Link to="/become-a-publisher" className="lc-link">publisher</Link> or{' '}
+              <Link to="/become-a-client" className="lc-link">client</Link> page, we store the name, email,
+              company, website, message, and submission timestamps you provide. We use them only to review and
+              reply to your application. Nothing is provisioned automatically, and the application is visible
+              only to the deployment’s administrators. Ask the administrator who provided this site to delete
+              your application after it has been reviewed.
+            </p>
+          </section>
+
           <section aria-labelledby="privacy-not-collect">
             <h2 id="privacy-not-collect" className="text-lg font-bold text-slate-950">What we do not do</h2>
             <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-600">

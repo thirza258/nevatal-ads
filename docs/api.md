@@ -1,6 +1,6 @@
 # API reference
 
-Base URL: **https://ads.nevatal.id**
+Base URL: **https://marketing.nevatal.id**
 
 The same API is reachable locally at `http://127.0.0.1:${HTTP_PORT:-18080}` (via
 nginx) or directly at the API container's `:8088` in development.
@@ -853,9 +853,75 @@ Administrator-only. `limit` is 1–200 (default 50), `offset` ≥ 0, newest firs
 
 Actions include `LOGIN`, `PASSWORD_CHANGED`, `CREATE_PUBLISHER`,
 `UPDATE_PUBLISHER`, site/placement/campaign create/update/delete/archive/publish/
-pause, `ROTATE_KEY`, `PAUSE_ALL_CAMPAIGNS`, `VERIFY_SITE`, and affiliate-offer
-create/update/validate/publish/pause/place/delete. `details` is a JSON value, not
-a string.
+pause, `ROTATE_KEY`, `PAUSE_ALL_CAMPAIGNS`, `VERIFY_SITE`, affiliate-offer
+create/update/validate/publish/pause/place/delete, and partner-inquiry receipt
+and status changes. `details` is a JSON value, not a string.
+
+## Partner inquiries
+
+The public pages `/become-a-publisher` and `/become-a-client` submit applications
+to these endpoints. A submission is stored as a lead for administrator review; it
+never creates a user, publisher, site, campaign, or session.
+
+### `POST /api/v3/partners/inquiries`
+
+Public. Rate limit: 20 per origin bucket per 10 minutes. Request body is capped at 16 KiB.
+
+```json
+{
+  "kind": "publisher",
+  "name": "Ada Publisher",
+  "email": "ada@example.com",
+  "company": "Ada's Blog",
+  "website": "https://ada.example.com",
+  "message": "I would like to place one article unit on my site.",
+  "fax": ""
+}
+```
+
+- `kind` is `publisher` or `client`.
+- `name` is 2–120 characters; `email` must be a valid address.
+- `company` is optional (≤160 characters); `website` is optional for a client
+  and required for a publisher, and must be an `http`/`https` URL.
+- `message` is 20–4000 characters.
+- `fax` is a hidden anti-bot field. If it is non-empty, the request receives the
+  normal success response but nothing is stored.
+
+`201` returns `{"status": "received"}`. `400` reports a validation error, `413`
+an oversized body, and `429` a rate limit (`Retry-After: 600`). No account is
+created and no session token is returned.
+
+### `GET /api/v1/partner-inquiries`
+
+Administrator-only. Optional filters: `kind` (`publisher`/`client`), `status`
+(`new`/`reviewing`/`closed`), `limit` (1–200, default 100), and `offset` (≥0).
+Newest first.
+
+```json
+{
+  "inquiries": [
+    {
+      "id": "…",
+      "kind": "publisher",
+      "name": "Ada Publisher",
+      "email": "ada@example.com",
+      "company": "Ada's Blog",
+      "website": "https://ada.example.com",
+      "message": "I would like to place one article unit on my site.",
+      "status": "new",
+      "created_at": "2026-10-26T12:00:00Z",
+      "updated_at": "2026-10-26T12:00:00Z"
+    }
+  ]
+}
+```
+
+### `PATCH /api/v1/partner-inquiries/{id}`
+
+Administrator-only. Body: `{"status": "reviewing"}` where status is `new`,
+`reviewing`, or `closed`. Returns `{"inquiry": {…}}`. A missing inquiry is `404`.
+The change writes a `PARTNER_INQUIRY_STATUS_UPDATED` audit row; receipt writes
+`PARTNER_INQUIRY_RECEIVED`.
 
 ## Learning API
 
@@ -872,15 +938,15 @@ See [learning.md](learning.md) for the end-to-end behavior and role model.
 Returns `application/xml; charset=utf-8`, `Cache-Control: public, max-age=1800`.
 The origin is `PUBLIC_BASE_URL`, which must be an HTTPS origin with no path or
 trailing slash. An invalid or `http://` value falls back to
-`https://ads.nevatal.id`.
+`https://marketing.nevatal.id`.
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://ads.nevatal.id/</loc><priority>1.0</priority></url>
-  <url><loc>https://ads.nevatal.id/courses</loc><priority>0.8</priority></url>
-  <url><loc>https://ads.nevatal.id/topics</loc><priority>0.7</priority></url>
-  <url><loc>https://ads.nevatal.id/learning-paths</loc><priority>0.7</priority></url>
+  <url><loc>https://marketing.nevatal.id/</loc><priority>1.0</priority></url>
+  <url><loc>https://marketing.nevatal.id/courses</loc><priority>0.8</priority></url>
+  <url><loc>https://marketing.nevatal.id/topics</loc><priority>0.7</priority></url>
+  <url><loc>https://marketing.nevatal.id/learning-paths</loc><priority>0.7</priority></url>
   <!-- published topics, courses, and paths only -->
 </urlset>
 ```
@@ -904,7 +970,7 @@ Disallow: /author
 Disallow: /my-learning
 Disallow: /dashboard
 
-Sitemap: https://ads.nevatal.id/sitemap.xml
+Sitemap: https://marketing.nevatal.id/sitemap.xml
 ```
 
 The disallow rules are search-result hygiene for private app shells. They do not

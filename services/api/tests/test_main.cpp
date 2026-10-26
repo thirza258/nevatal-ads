@@ -483,6 +483,70 @@ void test_online_backup() {
     std::cout << "[PASS] Online backup integrity, content, and permissions tests passed." << std::endl;
 }
 
+void test_partner_inquiries() {
+    adcontrol::Database db;
+    const std::string test_db = "test_inquiries_" + adcontrol::utils::random_hex(6) + ".db";
+    assert(db.init(test_db));
+
+    adcontrol::PartnerInquiry publisher;
+    publisher.kind = "publisher";
+    publisher.name = "Ada Publisher";
+    publisher.email = "ada@example.com";
+    publisher.company = "Ada's Blog";
+    publisher.website = "https://ada.example.com";
+    publisher.message = "I would like to place one article unit on my site.";
+    assert(db.create_partner_inquiry(publisher));
+    assert(!publisher.id.empty());
+    assert(publisher.status == "new");
+    assert(!publisher.created_at.empty());
+    assert(!publisher.updated_at.empty());
+
+    adcontrol::PartnerInquiry client;
+    client.kind = "client";
+    client.name = "Casey Client";
+    client.email = "casey@example.com";
+    client.company = "Casey Coffee";
+    client.message = "We would like to promote a coffee subscription for six weeks.";
+    assert(db.create_partner_inquiry(client));
+    assert(!client.id.empty());
+    assert(client.status == "new");
+
+    auto all = db.list_partner_inquiries();
+    assert(all.size() == 2);
+    auto publishers = db.list_partner_inquiries("publisher", std::nullopt);
+    assert(publishers.size() == 1);
+    assert(publishers[0].id == publisher.id);
+    auto clients = db.list_partner_inquiries("client", std::nullopt);
+    assert(clients.size() == 1);
+    assert(clients[0].id == client.id);
+    assert(db.list_partner_inquiries(std::nullopt, "closed").empty());
+
+    auto fetched = db.get_partner_inquiry(publisher.id);
+    assert(fetched.has_value());
+    assert(fetched->email == "ada@example.com");
+    assert(fetched->website == "https://ada.example.com");
+    assert(!db.get_partner_inquiry("missing").has_value());
+
+    assert(db.update_partner_inquiry_status(publisher.id, "reviewing"));
+    auto updated = db.get_partner_inquiry(publisher.id);
+    assert(updated.has_value());
+    assert(updated->status == "reviewing");
+    assert(updated->updated_at >= publisher.updated_at);
+
+    auto reviewing = db.list_partner_inquiries(std::nullopt, "reviewing");
+    assert(reviewing.size() == 1);
+    assert(reviewing[0].id == publisher.id);
+
+    assert(!db.update_partner_inquiry_status("missing", "closed"));
+
+    db.close();
+    std::remove(test_db.c_str());
+    std::filesystem::remove(test_db + "-wal");
+    std::filesystem::remove(test_db + "-shm");
+
+    std::cout << "[PASS] Partner inquiry persistence and status tests passed." << std::endl;
+}
+
 int main() {
     std::cout << "Running AdControl Unit Tests..." << std::endl;
     test_url_safety();
@@ -491,6 +555,7 @@ int main() {
     test_password_and_crypto();
     test_database_and_deduplication();
     test_phase2_tenancy_and_affiliate_metrics();
+    test_partner_inquiries();
     test_online_backup();
     std::cout << "\nALL ADCONTROL TESTS PASSED SUCCESSFULLY!" << std::endl;
     return 0;

@@ -7,6 +7,7 @@ import {
   BarChart3,
   History,
   FlaskConical,
+  Inbox,
   Settings,
   Ticket,
   Users,
@@ -19,6 +20,7 @@ export type NavTab =
   | 'campaigns'
   | 'affiliate'
   | 'publishers'
+  | 'inquiries'
   | 'analytics'
   | 'audit'
   | 'sandbox'
@@ -47,6 +49,12 @@ export const NAV_ITEMS: NavItem[] = [
     id: 'publishers',
     label: 'Publishers',
     icon: <Users className="w-4 h-4" />,
+    roles: ['admin'],
+  },
+  {
+    id: 'inquiries',
+    label: 'Inquiries',
+    icon: <Inbox className="w-4 h-4" />,
     roles: ['admin'],
   },
   { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-4 h-4" /> },

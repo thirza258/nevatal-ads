@@ -1,6 +1,6 @@
 # Operations guide
 
-This is the runbook for the production deployment at **https://ads.nevatal.id**.
+This is the runbook for the production deployment at **https://marketing.nevatal.id**.
 Public HTTPS is provided by **Cloudflare Tunnel**: a host-installed `cloudflared`
 connector dials out to Cloudflare and forwards requests to the loopback-only
 Compose web port. No inbound web port or origin TLS certificate is required.
@@ -39,7 +39,7 @@ TLS at its edge; `cloudflared` speaks plain HTTP to the container over loopback.
 ## Host requirements
 
 - Linux host with Docker Engine 24+ and Docker Compose v2.
-- The `ads.nevatal.id` zone managed by Cloudflare, plus a Cloudflare Tunnel.
+- The `marketing.nevatal.id` zone managed by Cloudflare, plus a Cloudflare Tunnel.
 - `cloudflared` installed on the Docker host.
 - Outbound HTTPS (TCP 443) and, preferably, UDP/TCP 7844 for the tunnel. No
   inbound 80/443 port forwarding is required.
@@ -68,7 +68,7 @@ Use either a dashboard-managed tunnel or a locally managed tunnel.
    The tunnel token is a secret. Avoid leaving it in shell history or copying it
    into the repository.
 3. Add a **Public hostname**:
-   - Hostname: `ads.nevatal.id`
+   - Hostname: `marketing.nevatal.id`
    - Service: `http://127.0.0.1:18080`
 
 #### CLI-managed
@@ -76,7 +76,7 @@ Use either a dashboard-managed tunnel or a locally managed tunnel.
 ```bash
 cloudflared tunnel login
 cloudflared tunnel create adcontrol
-cloudflared tunnel route dns adcontrol ads.nevatal.id
+cloudflared tunnel route dns adcontrol marketing.nevatal.id
 cloudflared tunnel list
 ```
 
@@ -92,7 +92,7 @@ sudo cloudflared service install
 sudo systemctl enable --now cloudflared
 ```
 
-The template routes `ads.nevatal.id` to `http://127.0.0.1:18080`. If you change
+The template routes `marketing.nevatal.id` to `http://127.0.0.1:18080`. If you change
 `HTTP_PORT`, update the ingress service and reload the connector.
 
 #### Verify the connector
@@ -128,13 +128,13 @@ ADCONTROL_GID=1000
 EVENT_RETENTION_DAYS=180
 BACKUP_INTERVAL_HOURS=24
 BACKUP_RETENTION=14
-PUBLIC_BASE_URL=https://ads.nevatal.id
+PUBLIC_BASE_URL=https://marketing.nevatal.id
 ```
 
 `PUBLIC_BASE_URL` is the canonical origin for learning SEO (`sitemap.xml`,
 `robots.txt`, and canonical metadata). Use an absolute HTTPS origin with no path
 or trailing slash. An HTTP or malformed value falls back to
-`https://ads.nevatal.id`. It does not change the tunnel ingress; that remains the
+`https://marketing.nevatal.id`. It does not change the tunnel ingress; that remains the
 loopback `HTTP_PORT`.
 
 Generate values without putting them in shell history if that matters:
@@ -183,15 +183,15 @@ Typical first-start failures are a short/missing production password, a missing
 ### 5. Verify public HTTPS
 
 ```bash
-curl -fsS https://ads.nevatal.id/readyz
-curl -fsSI https://ads.nevatal.id/ | head
-curl -fsS https://ads.nevatal.id/api/v3/catalog/courses | jq '.courses | length'
-curl -fsS https://ads.nevatal.id/robots.txt
-curl -fsS https://ads.nevatal.id/sitemap.xml | head -30
+curl -fsS https://marketing.nevatal.id/readyz
+curl -fsSI https://marketing.nevatal.id/ | head
+curl -fsS https://marketing.nevatal.id/api/v3/catalog/courses | jq '.courses | length'
+curl -fsS https://marketing.nevatal.id/robots.txt
+curl -fsS https://marketing.nevatal.id/sitemap.xml | head -30
 
 # Learning app at /; operations app at /dashboard.
-curl -fsS https://ads.nevatal.id/ | grep -q 'AdControl Learning'
-curl -fsS https://ads.nevatal.id/dashboard | grep -q 'AdControl'
+curl -fsS https://marketing.nevatal.id/ | grep -q 'AdControl Learning'
+curl -fsS https://marketing.nevatal.id/dashboard | grep -q 'AdControl'
 ```
 
 If the sitemap points at the wrong host or an `http://` URL, correct
@@ -205,7 +205,7 @@ ingress rule is missing.
 
 In the Cloudflare dashboard:
 
-- Confirm the DNS record for `ads.nevatal.id` is proxied and routed to the tunnel.
+- Confirm the DNS record for `marketing.nevatal.id` is proxied and routed to the tunnel.
 - Enable **Always Use HTTPS**.
 - Enable HSTS only after HTTPS works end to end. A sensible start is
   `max-age=31536000` without `includeSubDomains` or `preload` until you have
@@ -218,6 +218,12 @@ In the Cloudflare dashboard:
 - Do not enable features that rewrite or defer the SDK script unless you have
   tested publisher pages with them. Do not HTML-rewrite learning routes if it
   changes canonical metadata.
+- **Web Analytics** with automatic setup injects
+  `https://static.cloudflareinsights.com/beacon.min.js` into HTML responses. The
+  bundled CSP allows that script and `https://cloudflareinsights.com` for its RUM
+  `POST`, so enabling Web Analytics needs no proxy change. If you turn Web
+  Analytics off, remove both sources from `deploy/nginx/default.conf` and rebuild
+  the `web` container to restore a strictly self-only `script-src`.
 
 ### 6. Cloudflare WAF rate limits
 
@@ -254,7 +260,7 @@ add those rules; otherwise the tunnel cannot establish.
 
 ### 8. First login and hardening
 
-1. Open `https://ads.nevatal.id/` and sign in with `ADMIN_EMAIL` /
+1. Open `https://marketing.nevatal.id/` and sign in with `ADMIN_EMAIL` /
    `ADMIN_PASSWORD`.
 2. Change the password in **Settings**. This invalidates all sessions.
 3. Remove or blank `ADMIN_PASSWORD` in `deploy/.env` after the password change if
@@ -337,7 +343,7 @@ enrolled automatically.
    Video is limited to YouTube/Vimeo IDs; resources must be HTTPS links that
    AdControl does not fetch. Exercises may reference the sandbox but must never
    instruct automatic production changes.
-5. **Verify SEO.** Set `PUBLIC_BASE_URL=https://ads.nevatal.id` in `deploy/.env`,
+5. **Verify SEO.** Set `PUBLIC_BASE_URL=https://marketing.nevatal.id` in `deploy/.env`,
    recreate the API, and confirm that `/sitemap.xml` and `/robots.txt` use that
    origin and that only published topics/courses/paths are listed. The sitemap
    and public catalog APIs are cached for 30 and 2 minutes respectively.
@@ -353,6 +359,29 @@ enrolled automatically.
 
 For the full behavior and route list, see [learning.md](learning.md).
 
+### 11. Partner inquiries
+
+The public pages `/become-a-publisher` and `/become-a-client` submit applications
+to `POST /api/v3/partners/inquiries`. Submissions appear in the operations
+dashboard under **Inquiries** (`/dashboard#inquiries`) for administrators only.
+They do not create accounts, publishers, sites, or campaigns.
+
+1. **Review in the dashboard.** Check the submitted site or brief, reply by email,
+   and move the inquiry to `reviewing`. Do not treat an application as an approved
+   partner or a booked campaign.
+2. **Provision manually after agreement.** For a publisher, create the publisher
+   and owner account, site, placements, and verification as described in
+   [README.md](../README.md#onboard-a-publisher). For a client, create the campaign
+   only after the placements and schedule are agreed.
+3. **Close and retain.** Mark the inquiry `closed` when no further action is
+   needed. Applications are personal data: delete rows you no longer need and
+   apply the same retention to database backups. There is no self-service
+   deletion for applicants.
+4. **Watch abuse.** The endpoint is limited to 20 submissions per 10 minutes per
+   origin bucket, with a 16 KiB body cap and a hidden bot trap. Behind Cloudflare
+   Tunnel, that bucket is shared by all visitors, so add a Cloudflare WAF rate
+   limit for `/api/v3/partners/inquiries` if spam becomes a problem.
+
 ## Monitoring
 
 ### Health
@@ -360,7 +389,7 @@ For the full behavior and route list, see [learning.md](learning.md).
 ```bash
 curl -fsS http://127.0.0.1:18080/healthz   # process alive
 curl -fsS http://127.0.0.1:18080/readyz    # database reachable
-curl -fsS https://ads.nevatal.id/readyz    # public path through Cloudflare
+curl -fsS https://marketing.nevatal.id/readyz    # public path through Cloudflare
 docker compose -f deploy/docker-compose.yml ps
 sudo systemctl status cloudflared --no-pager
 ```
@@ -386,7 +415,7 @@ and WAF actions.
 - `/readyz` non-200 locally or publicly for more than a minute.
 - API container restart loops or `[Fatal]` lines.
 - `cloudflared` inactive, reconnecting, or reporting no registered connectors.
-- Cloudflare 1033/502/522 responses for `ads.nevatal.id`.
+- Cloudflare 1033/502/522 responses for `marketing.nevatal.id`.
 - Disk usage above 80% on the `./data` filesystem.
 - Backup directory has no file newer than ~2× `BACKUP_INTERVAL_HOURS`.
 - A sustained `429` rate at Cloudflare or in access logs.
@@ -435,7 +464,7 @@ no automatic schema rollback. Back up before every upgrade.
    ```bash
    docker compose -f deploy/docker-compose.yml up -d
    curl -fsS http://127.0.0.1:18080/readyz
-   curl -fsS https://ads.nevatal.id/readyz
+   curl -fsS https://marketing.nevatal.id/readyz
    ```
 
 4. **Smoke test** the dashboard login, a delivery config, a qualified
@@ -487,7 +516,7 @@ then clear ads during an outage.
 Cloudflare manages the public certificate and renews it automatically. `cloudflared`
 updates through the OS package manager or its self-update service, depending on
 how it was installed. After updating, confirm the tunnel remains connected and
-`https://ads.nevatal.id/readyz` still works.
+`https://marketing.nevatal.id/readyz` still works.
 
 If tunnel credentials or a connector token may have leaked, rotate them in the
 Cloudflare dashboard, reinstall the connector, and remove the old credentials
@@ -534,7 +563,7 @@ service, and restart cloudflared:
 docker compose -f deploy/docker-compose.yml up -d --force-recreate web
 sudo cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate
 sudo systemctl restart cloudflared
-curl -fsS https://ads.nevatal.id/readyz
+curl -fsS https://marketing.nevatal.id/readyz
 ```
 
 Do not change the mapping to a public interface.
@@ -566,7 +595,7 @@ different storage layer, not multiple SQLite writers.
 
 1. Provision a new host with Docker and `cloudflared`, and install the tunnel
    connector with the same tunnel credentials (or create a new tunnel and update
-   the `ads.nevatal.id` DNS route).
+   the `marketing.nevatal.id` DNS route).
 2. Copy the repository and the latest verified backup (plus `deploy/.env` from a
    secure secret store) to the host.
 3. Create `./data`, set ownership/mode, and restore:
@@ -603,14 +632,14 @@ dashboard, and outbound connectivity before restarting application containers.
 | --- | --- |
 | Cloudflare **1033** | Tunnel has no connected connector: `systemctl status cloudflared`, `journalctl -u cloudflared` |
 | Cloudflare **502** | Tunnel is up but origin is unreachable: stack health and `HTTP_PORT`/ingress port match |
-| Public hostname **404** | Tunnel public hostname or DNS route is missing for `ads.nevatal.id` |
-| Public DNS **NXDOMAIN** | No DNS record exists. Add the tunnel **Public hostname** in Zero Trust (dashboard-managed), or run `cloudflared tunnel route dns <tunnel> ads.nevatal.id` (CLI-managed); confirm the zone uses Cloudflare nameservers |
+| Public hostname **404** | Tunnel public hostname or DNS route is missing for `marketing.nevatal.id` |
+| Public DNS **NXDOMAIN** | No DNS record exists. Add the tunnel **Public hostname** in Zero Trust (dashboard-managed), or run `cloudflared tunnel route dns <tunnel> marketing.nevatal.id` (CLI-managed); confirm the zone uses Cloudflare nameservers |
 | Local `readyz` fails | `docker compose ps`; API logs; data permissions |
 | `/` shows learning, not the ad dashboard | Intended: the operations dashboard is `/dashboard`. Legacy hashes such as `/#campaigns` still open it. |
 | Dashboard loads but login fails | API logs; correct `ADMIN_EMAIL`; rate limit (429 → wait/restart API) |
 | Login returns `429` | Cloudflare WAF rule or shared origin bucket; adjust edge limits or wait |
 | Registration returns `429` | Public learning registration limit (8 per IP/5 min) or edge rule; wait or adjust WAF |
-| Sitemap uses the wrong origin or `http://` | Set `PUBLIC_BASE_URL=https://ads.nevatal.id` with no path/trailing slash; recreate the API |
+| Sitemap uses the wrong origin or `http://` | Set `PUBLIC_BASE_URL=https://marketing.nevatal.id` with no path/trailing slash; recreate the API |
 | Published course is missing from catalog/sitemap | Course or its topic is not `published`; check approval/publication, readiness, and the 30-minute sitemap cache |
 | Course detail shows locked lessons | For anonymous visitors, only `is_preview` lessons are public. Enrollment is required for the rest. |
 | Authoring returns `403` | Caller is an instructor who does not own the course, or lacks the editor/admin role |
@@ -623,7 +652,9 @@ dashboard, and outbound connectivity before restarting application containers.
 | Click returns `410` | Campaign paused/expired, schedule ended, site/placement disabled, or token >24 h old |
 | Clicks all return `403` | Click request origin is not in the allowlist; check that the page's `Origin` is listed |
 | Ads disappear after an upgrade | SDK JS cached/stale, SRI hash mismatch, or CSP blocked the new asset; check browser console |
-| Browser console shows a CSP error for styles | `style-src` must allow `https://ads.nevatal.id` (publisher CSP) |
+| Browser console shows a CSP error for styles | `style-src` must allow `https://marketing.nevatal.id` (publisher CSP) |
+| Browser console shows a CSP error for the Cloudflare beacon | Web Analytics automatic setup is injecting `static.cloudflareinsights.com` but the deployed CSP lacks the allowlist: restore the two Cloudflare sources in `deploy/nginx/default.conf` and rebuild `web`, or disable Web Analytics |
+| Hashed assets fail with `ERR_BLOCKED_BY_CLIENT` | A browser extension, ad blocker, or DevTools request-blocking rule blocked them client-side; the origin still serves them with `200`. Retest in a clean profile, and consider a non-`ads.` hostname if many visitors block it |
 | `SQLITE_BUSY` / API 500s | Another process opened the database; ensure only one API writer and local disk |
 | Disk filling | Event retention, learning data, backup count, container logs; inspect `du -sh data/*` |
 | Need to remove a learning staff account | No API/UI endpoint exists in this MVP. Use a reviewed database operation against the staff user and its sessions; never delete the shared `admin` account casually |
@@ -633,11 +664,12 @@ dashboard, and outbound connectivity before restarting application containers.
 
 ## Deployment checklist
 
-- [ ] Cloudflare Tunnel is healthy and `ads.nevatal.id` is routed to it.
+- [ ] Cloudflare Tunnel is healthy and `marketing.nevatal.id` is routed to it.
 - [ ] Tunnel ingress targets `http://127.0.0.1:18080` (or the configured `HTTP_PORT`).
 - [ ] No inbound 80/443/18080 is open; only loopback binds the web port.
-- [ ] `https://ads.nevatal.id/readyz` returns ready.
+- [ ] `https://marketing.nevatal.id/readyz` returns ready.
 - [ ] Always Use HTTPS and HSTS are enabled at Cloudflare.
+- [ ] Cloudflare Web Analytics and the CSP Insights allowlist are in sync.
 - [ ] A Cloudflare WAF rate limit protects `/api/v1/auth/login`.
 - [ ] A Cloudflare WAF rate limit protects `/api/v3/auth/register`.
 - [ ] `deploy/.env` mode `0600`; `SECRET_KEY` unique and ≥32 chars.
@@ -648,7 +680,7 @@ dashboard, and outbound connectivity before restarting application containers.
       monetization-enabled.
 - [ ] Affiliate offers are reviewed, active, and paired with visible
       product-card disclosures.
-- [ ] `PUBLIC_BASE_URL=https://ads.nevatal.id`; `/sitemap.xml` and
+- [ ] `PUBLIC_BASE_URL=https://marketing.nevatal.id`; `/sitemap.xml` and
       `/robots.txt` return the public origin, not `http://` or a container host.
 - [ ] `/` loads the public learning app and `/dashboard` loads operations; the
       launch catalog has published courses.

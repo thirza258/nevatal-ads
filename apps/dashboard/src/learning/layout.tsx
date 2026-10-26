@@ -3,9 +3,11 @@ import {
   BookOpen,
   Compass,
   ExternalLink,
+  Globe2,
   GraduationCap,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   Menu,
   NotebookPen,
   ShieldCheck,
@@ -48,6 +50,8 @@ const navItems = [
   { to: '/courses', label: 'Courses', icon: BookOpen },
   { to: '/topics', label: 'Topics', icon: Compass },
   { to: '/learning-paths', label: 'Learning paths', icon: GraduationCap },
+  { to: '/become-a-publisher', label: 'For publishers', icon: Globe2 },
+  { to: '/become-a-client', label: 'For clients', icon: Megaphone },
 ];
 
 export const LearningLayout: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -163,11 +167,11 @@ export const LearningLayout: React.FC<{ children: ReactNode }> = ({ children }) 
             ))}
           </nav>
 
-          <div className="hidden items-center gap-2 xl:flex">{signedInActions}</div>
+          <div className="hidden items-center gap-2 2xl:flex">{signedInActions}</div>
 
           <button
             type="button"
-            className="lc-button lc-button-secondary px-3 xl:hidden"
+            className="lc-button lc-button-secondary px-3 2xl:hidden"
             aria-expanded={mobileOpen}
             aria-controls="learning-mobile-menu"
             onClick={() => setMobileOpen((open) => !open)}
@@ -178,7 +182,7 @@ export const LearningLayout: React.FC<{ children: ReactNode }> = ({ children }) 
         </div>
 
         {mobileOpen && (
-          <div id="learning-mobile-menu" className="border-t border-slate-200 bg-white px-4 pb-5 pt-3 shadow-lg xl:hidden">
+          <div id="learning-mobile-menu" className="border-t border-slate-200 bg-white px-4 pb-5 pt-3 shadow-lg 2xl:hidden">
             <nav aria-label="Mobile" className="grid gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
@@ -279,12 +283,14 @@ export const LearningLayout: React.FC<{ children: ReactNode }> = ({ children }) 
           <div>
             <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">About</h2>
             <ul className="mt-3 space-y-2 text-sm">
+              <li><Link to="/become-a-publisher" className="text-slate-700 hover:text-teal-900">Become a publisher</Link></li>
+              <li><Link to="/become-a-client" className="text-slate-700 hover:text-teal-900">Become a client</Link></li>
               <li><Link to="/privacy" className="text-slate-700 hover:text-teal-900">Privacy</Link></li>
               <li><Link to="/accessibility" className="text-slate-700 hover:text-teal-900">Accessibility</Link></li>
               <li><a href="/dashboard" className="text-slate-700 hover:text-teal-900">Operations dashboard</a></li>
               <li>
-                <a href="https://ads.nevatal.id" className="inline-flex items-center gap-1 text-slate-700 hover:text-teal-900">
-                  ads.nevatal.id <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                <a href="https://marketing.nevatal.id" className="inline-flex items-center gap-1 text-slate-700 hover:text-teal-900">
+                  marketing.nevatal.id <ExternalLink className="h-3 w-3" aria-hidden="true" />
                 </a>
               </li>
             </ul>

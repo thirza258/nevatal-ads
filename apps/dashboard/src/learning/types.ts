@@ -326,3 +326,20 @@ export interface CourseStatusResponse {
   course: AuthorCourse;
   status: string;
 }
+
+export type PartnerInquiryKind = 'publisher' | 'client';
+
+export interface PartnerInquiryInput {
+  kind: PartnerInquiryKind;
+  name: string;
+  email: string;
+  company: string;
+  website: string;
+  message: string;
+  /** Hidden anti-bot field; people never see or fill it. */
+  fax?: string;
+}
+
+export interface PartnerInquiryResponse {
+  status: 'received';
+}

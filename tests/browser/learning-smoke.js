@@ -49,6 +49,25 @@ async function main() {
   check('Course detail fits a phone viewport',
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
 
+  for (const partner of [
+    { path: '/become-a-publisher', kind: 'publisher', name: 'publisher' },
+    { path: '/become-a-client', kind: 'client', name: 'client' },
+  ]) {
+    await page.goto(BASE + partner.path, { waitUntil: 'networkidle' });
+    await page.waitForSelector('#apply form', { timeout: 15000 });
+    check('Partner page ' + partner.path + ' renders an application form',
+      (await page.locator('#apply form').count()) === 1);
+    check('Partner page ' + partner.path + ' has a specific title',
+      (await page.title()).toLowerCase().includes(partner.name));
+    check('Partner page ' + partner.path + ' canonical matches the route',
+      (await page.locator('link[rel="canonical"]').getAttribute('href') || '').endsWith(partner.path));
+    check('Partner page ' + partner.path + ' website requirement is correct',
+      ((await page.locator('#' + partner.kind + '-website').getAttribute('required')) !== null) ===
+        (partner.kind === 'publisher'));
+    check('Partner page ' + partner.path + ' fits a phone viewport',
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+  }
+
   await page.goto(BASE + '/dashboard', { waitUntil: 'networkidle' });
   await page.waitForSelector('body', { timeout: 15000 });
   check('Dashboard entry renders content', (await page.locator('body').innerText()).includes('AdControl'));

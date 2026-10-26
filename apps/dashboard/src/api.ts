@@ -10,6 +10,9 @@ import {
   AnalyticsBreakdownRow,
   TimeseriesPoint,
   AuditLogItem,
+  PartnerInquiry,
+  PartnerInquiryKind,
+  PartnerInquiryStatus,
   AppSettings,
   SandboxData,
 } from './types';
@@ -439,6 +442,32 @@ export const api = {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
+
+  // Partner inquiries
+  async getPartnerInquiries(filters?: {
+    kind?: PartnerInquiryKind;
+    status?: PartnerInquiryStatus;
+    limit?: number;
+    offset?: number;
+  }): Promise<PartnerInquiry[]> {
+    const params = new URLSearchParams();
+    if (filters?.kind) params.set('kind', filters.kind);
+    if (filters?.status) params.set('status', filters.status);
+    params.set('limit', String(filters?.limit ?? 200));
+    params.set('offset', String(filters?.offset ?? 0));
+    const res = await request<{ inquiries: PartnerInquiry[] }>(
+      `/api/v1/partner-inquiries?${params.toString()}`,
+    );
+    return res.inquiries;
+  },
+
+  async updatePartnerInquiry(id: string, status: PartnerInquiryStatus): Promise<PartnerInquiry> {
+    const res = await request<{ inquiry: PartnerInquiry }>(
+      `/api/v1/partner-inquiries/${encodeURIComponent(id)}`,
+      { method: 'PATCH', body: JSON.stringify({ status }) },
+    );
+    return res.inquiry;
   },
 
   // Audit Logs

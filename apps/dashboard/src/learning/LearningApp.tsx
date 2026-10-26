@@ -18,6 +18,7 @@ import {
   TopicsPage,
 } from './pages/catalog';
 import { MyLearningPage, PlayerPage } from './pages/learner';
+import { BecomeClientPage, BecomePublisherPage } from './pages/partners';
 
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,80}$/;
@@ -61,6 +62,8 @@ const LearningRoutes: React.FC = () => {
         case 'register': return <RegisterPage />;
         case 'my-learning': return <MyLearningPage />;
         case 'author': return <AuthorCoursesPage />;
+        case 'become-a-publisher': return <BecomePublisherPage />;
+        case 'become-a-client': return <BecomeClientPage />;
         case 'privacy': return <PrivacyPage />;
         case 'accessibility': return <AccessibilityPage />;
         default: return <NotFoundPage />;

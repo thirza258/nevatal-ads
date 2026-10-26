@@ -69,6 +69,37 @@ struct Publisher {
     }
 };
 
+// A public "become a publisher" / "become a client" application. These arrive
+// from the marketing site without an account, so they are stored for review and
+// never auto-provision anything.
+struct PartnerInquiry {
+    std::string id;
+    std::string kind; // "publisher" or "client"
+    std::string name;
+    std::string email;
+    std::string company;
+    std::string website;
+    std::string message;
+    std::string status; // "new", "reviewing", "closed"
+    std::string created_at;
+    std::string updated_at;
+
+    nlohmann::json to_json() const {
+        return {
+            {"id", id},
+            {"kind", kind},
+            {"name", name},
+            {"email", email},
+            {"company", company},
+            {"website", website},
+            {"message", message},
+            {"status", status},
+            {"created_at", created_at},
+            {"updated_at", updated_at}
+        };
+    }
+};
+
 struct Site {
     std::string id;
     std::string workspace_id;

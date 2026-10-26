@@ -11,6 +11,7 @@ import { PlacementsView } from './views/PlacementsView';
 import { CampaignsView } from './views/CampaignsView';
 import { AffiliateOffersView } from './views/AffiliateOffersView';
 import { PublishersView } from './views/PublishersView';
+import { InquiriesView } from './views/InquiriesView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { AuditLogView } from './views/AuditLogView';
 import { SandboxView } from './views/SandboxView';
@@ -285,6 +286,8 @@ const App: React.FC = () => {
         return <AffiliateOffersView onNotify={notify} role={user.role} />;
       case 'publishers':
         return <PublishersView onNotify={notify} />;
+      case 'inquiries':
+        return <InquiriesView onNotify={notify} />;
       case 'analytics':
         return <AnalyticsView onNotify={notify} showPublisherFilter={user.role === 'admin'} />;
       case 'audit':

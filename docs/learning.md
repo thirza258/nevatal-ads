@@ -52,7 +52,9 @@ video hosting, and AI tutoring are **not** implemented. See
 | `/author/courses/<id>` | Course owner/editor | Metadata, curriculum, quiz, review, revisions, analytics |
 | `/author/team` | Admin | List learning accounts and create instructors/editors |
 | `/author/analytics` | Admin | Aggregate learning totals |
-| `/privacy`, `/accessibility` | Public | Student-data and accessibility notices |
+| `/become-a-publisher` | Public | Publisher application and onboarding explanation |
+| `/become-a-client` | Public | Advertising brief and onboarding explanation |
+| `/privacy`, `/accessibility` | Public | Student-data, partner-application, and accessibility notices |
 | `/dashboard` | Operations roles | The Phase 1/2 advertising dashboard |
 
 Legacy root hashes such as `/#campaigns` still open the operations dashboard
@@ -298,7 +300,7 @@ XML-escaped. The sitemap response is cached for 30 minutes.
 the sitemap. These rules are crawl hints only; authorization remains server-side.
 
 `PUBLIC_BASE_URL` must be an absolute HTTPS origin with no path or trailing
-slash. An invalid or HTTP value falls back to `https://ads.nevatal.id` so
+slash. An invalid or HTTP value falls back to `https://marketing.nevatal.id` so
 canonical URLs are never downgraded. Metadata is applied client-side; search or
 social crawlers that do not execute JavaScript may see only the default shell
 metadata. Server-side prerendering is a later enhancement.
@@ -343,6 +345,12 @@ the learning catalog. Learning requests use the normal session token in the
 `Authorization` header. Staff should not paste personal data into course content,
 quiz explanations, or learner support notes.
 
+The public partner pages are separate from learning accounts. Applications store
+the submitted name, email, company, website, message, and timestamps for
+administrator review only; they are documented in
+[security.md](security.md#partner-inquiry-data), and the learning privacy page
+links to them. An application never creates a learner or advertising account.
+
 ## Operations and verification
 
 The learning schema is additive and created at API startup. Back up before an
@@ -353,16 +361,16 @@ After deployment, verify:
 
 ```bash
 # Public learning app and operations dashboard are distinct routes.
-curl -fsSI https://ads.nevatal.id/ | head
-curl -fsSI https://ads.nevatal.id/dashboard | head
+curl -fsSI https://marketing.nevatal.id/ | head
+curl -fsSI https://marketing.nevatal.id/dashboard | head
 
 # SEO surfaces are served by the API through nginx.
-curl -fsS https://ads.nevatal.id/robots.txt
-curl -fsS https://ads.nevatal.id/sitemap.xml | head -30
+curl -fsS https://marketing.nevatal.id/robots.txt
+curl -fsS https://marketing.nevatal.id/sitemap.xml | head -30
 
 # Public catalog is available; authoring requires authentication.
-curl -fsS https://ads.nevatal.id/api/v3/catalog/courses | jq '.courses | length'
-curl -sS -o /dev/null -w '%{http_code}\n' https://ads.nevatal.id/api/v3/author/courses
+curl -fsS https://marketing.nevatal.id/api/v3/catalog/courses | jq '.courses | length'
+curl -sS -o /dev/null -w '%{http_code}\n' https://marketing.nevatal.id/api/v3/author/courses
 ```
 
 The last request should be `401`. Create staff accounts as an administrator at

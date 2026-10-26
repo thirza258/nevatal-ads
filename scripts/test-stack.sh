@@ -48,7 +48,7 @@ done
 check "Stack is reachable through nginx" "$wait_web"
 
 # ---- Public learning app, dashboard, and static host ---------------------
-PUBLIC_ORIGIN="${PUBLIC_BASE_URL:-https://ads.nevatal.id}"
+PUBLIC_ORIGIN="${PUBLIC_BASE_URL:-https://marketing.nevatal.id}"
 PUBLIC_ORIGIN="${PUBLIC_ORIGIN%/}"
 
 APP_HEADERS="$(mktemp)"
@@ -59,7 +59,8 @@ check "Public learning denies framing" "$(tr -d '\r' < "$APP_HEADERS" | grep -qi
 check "Public learning is no-store" "$([ "$(header_value cache-control < "$APP_HEADERS")" = "no-store" ] && echo true || echo false)"
 check "Public learning has one nosniff header" "$([ "$(header_count x-content-type-options < "$APP_HEADERS")" = "1" ] && echo true || echo false)"
 check "CSP allows only approved video embed hosts"   "$(tr -d '\r' < "$APP_HEADERS" | grep -qi "frame-src https://www.youtube-nocookie.com https://player.vimeo.com" && echo true || echo false)"
-check "CSP keeps scripts self-only and blocks eval"   "$(tr -d '\r' < "$APP_HEADERS" | grep -qi "script-src 'self';" && echo true || echo false)"
+check "CSP allows only self and the Cloudflare Insights beacon" "$(tr -d '\r' < "$APP_HEADERS" | grep -qi "script-src 'self' https://static.cloudflareinsights.com;" && echo true || echo false)"
+check "CSP sends RUM only to Cloudflare Insights" "$(tr -d '\r' < "$APP_HEADERS" | grep -qi "connect-src 'self' https://cloudflareinsights.com;" && echo true || echo false)"
 
 DASHBOARD_HEADERS="$(curl -sS -D - -o /dev/null "$BASE/dashboard")"
 check "Dashboard route is served by the SPA" "$(echo "$DASHBOARD_HEADERS" | grep -qi '^Content-Security-Policy:' && echo true || echo false)"
@@ -82,6 +83,7 @@ check "Sitemap keeps the API cache policy" "$([ "$(header_value cache-control < 
 check "Sitemap has one nosniff header" "$([ "$(header_count x-content-type-options < "$SITEMAP_HEADERS")" = "1" ] && echo true || echo false)"
 check "Sitemap uses the configured public origin" "$(echo "$SITEMAP" | grep -Fq "<loc>${PUBLIC_ORIGIN}/courses/" && echo true || echo false)"
 check "Sitemap includes the public topics index" "$(echo "$SITEMAP" | grep -Fq "<loc>${PUBLIC_ORIGIN}/topics</loc>" && echo true || echo false)"
+check "Sitemap includes the partner pages" "$(echo "$SITEMAP" | grep -Fq "<loc>${PUBLIC_ORIGIN}/become-a-publisher</loc>" && echo "$SITEMAP" | grep -Fq "<loc>${PUBLIC_ORIGIN}/become-a-client</loc>" && echo true || echo false)"
 check "Sitemap excludes authoring routes" "$(echo "$SITEMAP" | grep -qE '/(author|my-learning)' && echo false || echo true)"
 
 ROBOTS_HEADERS="$(mktemp)"
@@ -100,10 +102,14 @@ COURSE_SLUG="$(echo "$CATALOG" | jq -r '.courses[0].slug')"
 COURSE_PAGE_HEADERS="$(curl -sS -D - -o /dev/null "$BASE/courses/$COURSE_SLUG")"
 check "Course page route is served by the SPA" "$(echo "$COURSE_PAGE_HEADERS" | grep -qi '^Content-Security-Policy:' && echo true || echo false)"
 check "Course page route is no-store" "$([ "$(header_value cache-control <<< "$COURSE_PAGE_HEADERS")" = "no-store" ] && echo true || echo false)"
+for partner_page in become-a-publisher become-a-client; do
+  PARTNER_HEADERS="$(curl -sS -D - -o /dev/null "$BASE/$partner_page")"
+  check "Partner page /$partner_page is served by the SPA" "$(echo "$PARTNER_HEADERS" | grep -q '200 OK' && echo "$PARTNER_HEADERS" | grep -qi '^Content-Security-Policy:' && echo true || echo false)"
+done
 
 DEMO_HEADERS="$(curl -sS -D - -o /dev/null "$BASE/demo/?site_key=site_pub_aaaaaaaaaaaa")"
 check "Demo page served" "$(echo "$DEMO_HEADERS" | grep -q '200 OK' && echo true || echo false)"
-check "Demo page uses self-only scripts" "$(echo "$DEMO_HEADERS" | grep -q "script-src 'self'" && echo true || echo false)"
+check "Demo page keeps the shared script policy" "$(echo "$DEMO_HEADERS" | grep -q "script-src 'self' https://static.cloudflareinsights.com;" && echo true || echo false)"
 DEMO_BODY="$(curl -fsS "$BASE/demo/")"
 check "Demo HTML has no inline scripts" "$(echo "$DEMO_BODY" | grep -q '<script src="/demo/demo.js"></script>' && ! echo "$DEMO_BODY" | grep -qE '<script>[^<]' && echo true || echo false)"
 

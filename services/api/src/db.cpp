@@ -338,6 +338,24 @@ bool Database::run_migrations() {
             created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
+
+        -- Public publisher/client applications from the marketing site. These
+        -- are reviewed by an administrator and never provision an account.
+        CREATE TABLE IF NOT EXISTS partner_inquiries (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL CHECK (kind IN ('publisher', 'client')),
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            company TEXT NOT NULL DEFAULT '',
+            website TEXT NOT NULL DEFAULT '',
+            message TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'reviewing', 'closed')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_partner_inquiries_created ON partner_inquiries(created_at);
+        CREATE INDEX IF NOT EXISTS idx_partner_inquiries_kind ON partner_inquiries(kind);
+        CREATE INDEX IF NOT EXISTS idx_partner_inquiries_status ON partner_inquiries(status);
     )";
 
     char* err_msg = nullptr;
@@ -962,6 +980,113 @@ bool Database::update_publisher(const Publisher& publisher) {
         sqlite3_finalize(stmt);
     }
     return true;
+}
+
+// Partner inquiries
+namespace {
+PartnerInquiry partner_inquiry_from_row(sqlite3_stmt* stmt) {
+    auto text = [&](int i) -> std::string {
+        const char* v = reinterpret_cast<const char*>(sqlite3_column_text(stmt, i));
+        return v ? v : "";
+    };
+    PartnerInquiry i;
+    i.id = text(0);
+    i.kind = text(1);
+    i.name = text(2);
+    i.email = text(3);
+    i.company = text(4);
+    i.website = text(5);
+    i.message = text(6);
+    i.status = text(7);
+    i.created_at = text(8);
+    i.updated_at = text(9);
+    return i;
+}
+
+const char* kPartnerInquiryColumns =
+    "id, kind, name, email, company, website, message, status, created_at, updated_at";
+} // namespace
+
+bool Database::create_partner_inquiry(PartnerInquiry& inquiry) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (inquiry.id.empty()) inquiry.id = utils::generate_uuid();
+    if (inquiry.status.empty()) inquiry.status = "new";
+    const std::string now = utils::get_current_iso8601();
+    if (inquiry.created_at.empty()) inquiry.created_at = now;
+    inquiry.updated_at = now;
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = R"(
+        INSERT INTO partner_inquiries
+            (id, kind, name, email, company, website, message, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    )";
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, inquiry.id.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, inquiry.kind.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, inquiry.name.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 4, inquiry.email.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 5, inquiry.company.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 6, inquiry.website.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 7, inquiry.message.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 8, inquiry.status.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 9, inquiry.created_at.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 10, inquiry.updated_at.c_str(), -1, SQLITE_STATIC);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+std::vector<PartnerInquiry> Database::list_partner_inquiries(
+    const std::optional<std::string>& kind, const std::optional<std::string>& status,
+    int limit, int offset) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<PartnerInquiry> list;
+
+    std::string sql = std::string("SELECT ") + kPartnerInquiryColumns +
+                      " FROM partner_inquiries WHERE 1=1";
+    if (kind) sql += " AND kind = ?";
+    if (status) sql += " AND status = ?";
+    sql += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return list;
+    int index = 1;
+    if (kind) sqlite3_bind_text(stmt, index++, kind->c_str(), -1, SQLITE_STATIC);
+    if (status) sqlite3_bind_text(stmt, index++, status->c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, index++, limit);
+    sqlite3_bind_int(stmt, index, offset);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) list.push_back(partner_inquiry_from_row(stmt));
+    sqlite3_finalize(stmt);
+    return list;
+}
+
+std::optional<PartnerInquiry> Database::get_partner_inquiry(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sqlite3_stmt* stmt = nullptr;
+    const std::string sql = std::string("SELECT ") + kPartnerInquiryColumns +
+                            " FROM partner_inquiries WHERE id = ? LIMIT 1;";
+    if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_STATIC);
+    std::optional<PartnerInquiry> result;
+    if (sqlite3_step(stmt) == SQLITE_ROW) result = partner_inquiry_from_row(stmt);
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+bool Database::update_partner_inquiry_status(const std::string& id, const std::string& status) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "UPDATE partner_inquiries SET status = ?, updated_at = ? WHERE id = ?;";
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    const std::string now = utils::get_current_iso8601();
+    sqlite3_bind_text(stmt, 1, status.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, now.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, id.c_str(), -1, SQLITE_STATIC);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE && sqlite3_changes(db_) > 0;
 }
 
 // Affiliate offers

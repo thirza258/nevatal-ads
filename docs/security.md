@@ -96,8 +96,9 @@ Settings expose only operational values.
 - **No MFA.** Protect the account with a strong unique password and restrict the
   dashboard at the proxy if your threat model requires it.
 - **Bearer token in `localStorage`.** This is XSS-readable. The shipped CSP
-  (`script-src 'self'`, no inline scripts) and React's escaping materially reduce
-  XSS risk, but an httpOnly cookie with CSRF protection would be stronger. The
+  (`script-src` limited to `'self'` and the SRI-pinned Cloudflare Insights
+  beacon, no inline scripts) and React's escaping materially reduce XSS risk,
+  but an httpOnly cookie with CSRF protection would be stronger. The
   dashboard and API share an origin, so the current design avoids CSRF while
   accepting the XSS trade-off.
 - **No per-account lockout or IP allowlist** beyond the rate limit. Add these in
@@ -313,6 +314,24 @@ so reports remain consistent. Full deletion means stopping the service and
 removing the database and backups (see
 [backup-restore.md](backup-restore.md#retention-and-deletion)).
 
+### Partner inquiry data
+
+The public publisher/client application form stores the name, email, company,
+website, message, status, and timestamps supplied by the applicant. This is
+personal data and is deliberately kept separate from advertising and learning
+account data:
+
+- The endpoint is unauthenticated but rate-limited, body-capped, and validated.
+  A hidden `fax` field silently discards bot submissions.
+- A submission never creates a user, publisher, site, campaign, or session.
+- Only administrators can list or change the status. The applicant has no
+  account and cannot read or edit the record.
+- Applications are not removed by `EVENT_RETENTION_DAYS`; delete reviewed or
+  rejected applications according to the deployment’s privacy policy, and apply
+  the same retention to backups.
+- Do not export inquiries to third-party marketing tools without a lawful basis.
+  The message field is rendered as text in the dashboard, never as HTML.
+
 ### Reporting provenance and tenant isolation
 
 `impressions`, `clicks`, `outbound_redirects`, and `affiliate_clicks` are
@@ -333,6 +352,7 @@ Review these paths after adding any endpoint that joins campaign or event data.
 | Control | Value |
 | --- | --- |
 | Overall request body limit | 256 KiB (API server), 64 KiB advertising admin JSON |
+| Partner inquiry submission | 20 per 10 min per origin bucket; 16 KiB body |
 | Advertising event payload | 8 KiB |
 | Login | 10 per 5 min per IP |
 | Advertising config | 240 per min per IP + site key |
@@ -373,7 +393,7 @@ tokens and passwords would cross the network in cleartext. See
 nginx adds to dashboard, demo, SDK, and proxied API responses:
 
 ```http
-Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com https://player.vimeo.com
+Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com https://player.vimeo.com
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
 Referrer-Policy: strict-origin-when-cross-origin
@@ -384,6 +404,13 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   React apps' styling; the public SDK does not need `'unsafe-inline'` and
   publisher pages can use a stricter policy (see
   [integration.md](integration.md#content-security-policy)).
+- The only third-party script origin is
+  `https://static.cloudflareinsights.com`, because Cloudflare Web Analytics
+  injects its beacon into HTML at the edge; `https://cloudflareinsights.com` is
+  allowed in `connect-src` for that beacon's RUM `POST`. The beacon is loaded
+  with a pinned SRI hash. This is a deliberate, narrow exception to `'self'`.
+  Remove both sources from `deploy/nginx/default.conf` if Web Analytics is
+  disabled, and re-add them before enabling it again.
 - `frame-src` is restricted to the approved privacy-enhanced YouTube and Vimeo
   players. No arbitrary iframes are permitted on learning pages.
 - `frame-ancestors 'none'` plus `X-Frame-Options: DENY` prevent clickjacking.
@@ -417,7 +444,8 @@ create/update/delete/archive, campaign create/update/publish/pause/delete/
 archive, affiliate-offer create/update/validate/publish/pause/place/delete,
 learning staff creation, learner registration, learner enrollment, course
 create/update/status transitions, module/lesson create/archive, resource
-create/delete, quiz replace/delete, and learner self-deletion. In-place module
+create/delete, quiz replace/delete, learner self-deletion, and partner-inquiry
+receipt/status changes. In-place module
 and lesson field edits are not separately audited in this MVP; published
 curriculum snapshots provide a version record. Impressions, clicks, and outbound
 redirects are analytical events, not audit events.
@@ -460,8 +488,8 @@ maintenance.
 
 The SQLite database contains password hashes, session tokens, public site keys,
 campaigns, event analytics, learning accounts, enrollments, progress, quiz
-attempts, authoring revisions, and audit logs. It is not encrypted at rest by the
-application. Use full-disk encryption or an encrypted volume, restrict filesystem
+attempts, authoring revisions, partner-inquiry applications, and audit logs. It
+is not encrypted at rest by the application. Use full-disk encryption or an encrypted volume, restrict filesystem
 access, and encrypt off-host backup copies. Backup guidance, integrity
 verification, and restore drills are in
 [backup-restore.md](backup-restore.md). Deleting a learner removes current rows,
@@ -469,7 +497,9 @@ but backups and WAL history may retain the data until their retention expires.
 
 ## Deployment checklist
 
-- [ ] Cloudflare Tunnel is healthy; `ads.nevatal.id` routes to it over HTTPS.
+- [ ] Cloudflare Tunnel is healthy; `marketing.nevatal.id` routes to it over HTTPS.
+- [ ] Cloudflare Web Analytics matches the CSP: enabled with the Insights
+      allowlist present, or disabled with the allowlist removed.
 - [ ] `deploy/.env` is mode `0600` and excluded from git.
 - [ ] `SECRET_KEY` is random, ≥32 characters, unique to this deployment.
 - [ ] Seeded admin password is ≥12 characters and changed after first login.
@@ -488,6 +518,8 @@ but backups and WAL history may retain the data until their retention expires.
 - [ ] `PUBLIC_BASE_URL` is an HTTPS origin with no path or trailing slash.
 - [ ] Learning analytics are treated as aggregate; no named-learner reporting is
       added outside the reviewed API.
+- [ ] Partner inquiries are reviewed only in `/dashboard#inquiries`, and the
+      deployment has a documented retention/deletion practice for them.
 - [ ] Dashboard access is restricted at the proxy if required.
 - [ ] HSTS enabled only after HTTPS is confirmed.
 - [ ] Automatic backups enabled and copied off-host.

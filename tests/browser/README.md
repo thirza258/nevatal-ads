@@ -9,16 +9,16 @@ mutation scanner, or browser CSP and layout behavior.
 | --- | --- |
 | `sdk-e2e.js` | Demo rendering, signed click URLs, safe link attributes, Ad label, no cookies or storage, 50%/1 s impression qualification, offscreen suppression, SPA-inserted placements, refresh deduplication, pause propagation, blank/hide fallbacks, no CSP violations |
 | `csp-strict.js` | A host page served with `default-src 'self'; script-src 'self'; style-src 'self'; ...` still renders the ad, loads the SDK stylesheet, applies CSSOM dimensions, keeps the Ad label, and produces no CSP violations or page errors |
-| `learning-smoke.js` | The public learning app lazy-loads and renders, catalog and course routes get titles and canonical URLs, phone-width layouts do not overflow, and the dashboard entry still loads without console or CSP errors. |
+| `learning-smoke.js` | The public learning app lazy-loads and renders, catalog and course routes get titles and canonical URLs, the partner application pages render their forms with the correct website requirement, phone-width layouts do not overflow, and the dashboard entry still loads without console or CSP errors. |
 
 ## Safety
 
 `sdk-e2e.js` and `csp-strict.js` authenticate as the administrator, create or
 modify placements and campaigns, and write analytics events.
-`learning-smoke.js` is read-only: it browses only public learning routes and does
-not sign in or mutate data. Because the first two suites change live data, run
+`learning-smoke.js` is read-only: it browses public learning and partner routes
+and the dashboard entry, and does not sign in or mutate data. Because the first two suites change live data, run
 all three against a local or staging stack only. Never point them at
-**https://ads.nevatal.id** production.
+**https://marketing.nevatal.id** production.
 
 ## Run
 
@@ -67,7 +67,7 @@ RESULT: 8 passed, 0 failed
 
 === Public learning smoke suite ===
 ...
-RESULT: 11 passed, 0 failed
+RESULT: 21 passed, 0 failed
 
 Browser suites: sdk-e2e=0 csp-strict=0 learning=0 (0 = pass)
 ```

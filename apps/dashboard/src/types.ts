@@ -168,6 +168,22 @@ export interface AuditLogItem {
   created_at: string;
 }
 
+export type PartnerInquiryKind = 'publisher' | 'client';
+export type PartnerInquiryStatus = 'new' | 'reviewing' | 'closed';
+
+export interface PartnerInquiry {
+  id: string;
+  kind: PartnerInquiryKind;
+  name: string;
+  email: string;
+  company: string;
+  website: string;
+  message: string;
+  status: PartnerInquiryStatus;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AppSettings {
   app_name: string;
   environment: string;
