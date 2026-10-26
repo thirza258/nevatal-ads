@@ -1,0 +1,15 @@
+# Cloudflare Tunnel configuration template for AdControl.
+#
+# Copy this file to /etc/cloudflared/config.yml on the Docker host, replace
+# TUNNEL_UUID with the UUID printed by `cloudflared tunnel create adcontrol`,
+# and copy the matching credentials JSON beside it (mode 0600).
+#
+# The tunnel target is the loopback-only Compose port. Keep HTTP_BIND=127.0.0.1
+# and do not open this port in the host firewall.
+tunnel: TUNNEL_UUID
+credentials-file: /etc/cloudflared/TUNNEL_UUID.json
+
+ingress:
+  - hostname: ads.nevatal.id
+    service: http://127.0.0.1:18080
+  - service: http_status:404

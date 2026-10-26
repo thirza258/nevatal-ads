@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>AdControl demo publisher</title>
+    <link rel="stylesheet" href="/demo/demo.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2'><rect width='20' height='14' x='2' y='5' rx='2'/><path d='M2 10h20'/></svg>"
+    />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="demo-header">
+      <div class="wrap header-inner">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">DC</span>
+          <span>
+            <strong>The Demo Courier</strong>
+            <small>Sample publisher page</small>
+          </span>
+        </div>
+        <nav aria-label="Demo navigation">
+          <a href="#main">Articles</a>
+          <a href="#placements">Placements</a>
+          <a href="#setup">Setup</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class="wrap demo-main">
+      <section class="hero">
+        <p class="eyebrow">AdControl self-hosted demo</p>
+        <h1>A normal web page with centrally managed ads.</h1>
+        <p class="lede">
+          This static host page loads the real AdControl browser SDK. The page still works if the ad service is
+          unavailable; the ad containers simply stay empty.
+        </p>
+      </section>
+
+      <section id="setup" class="notice" aria-live="polite">
+        <h2>Demo status</h2>
+        <p id="demo-status">Reading the demo configuration…</p>
+        <form id="site-key-form" class="site-key-form" hidden>
+          <label for="site-key">Public site key</label>
+          <div class="site-key-row">
+            <input id="site-key" name="site_key" type="text" autocomplete="off" spellcheck="false" placeholder="site_pub_…" />
+            <button type="submit">Load ads</button>
+          </div>
+          <p class="hint">
+            Add this demo's origin (<code id="demo-origin"></code>) to the website's allowed domains in AdControl
+            before expecting delivery or click tracking to work.
+          </p>
+        </form>
+        <p class="hint">
+          The SDK never receives the admin password or secret key. It only gets the public site key and signed,
+          short-lived click URLs.
+        </p>
+      </section>
+
+      <section id="placements" class="placements" aria-labelledby="placements-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Integration surface</p>
+            <h2 id="placements-title">Ad placements</h2>
+          </div>
+          <p class="section-note">
+            Each element below is a plain <code>div</code> with a
+            <code>data-adcontrol-placement</code> attribute. No host-page JavaScript is needed to render them.
+          </p>
+        </div>
+        <div id="placement-list" class="placement-list"></div>
+      </section>
+
+      <article class="article">
+        <h2>Local publishing, central control</h2>
+        <p>
+          Editors keep writing and shipping their sites normally. Ad destinations, schedules, creatives, and
+          placement assignments are changed in AdControl and picked up by the SDK without redeploying this page.
+        </p>
+        <p>
+          Impressions are counted only after at least half of an ad has been visible for one second. Clicks go
+          through a signed redirect that re-validates the campaign and the page origin on the server.
+        </p>
+      </article>
+    </main>
+
+    <footer class="demo-footer">
+      <div class="wrap">
+        <p>Static demo host bundled with AdControl. Not a real publication.</p>
+      </div>
+    </footer>
+
+    <script src="/demo/demo.js"></script>
+  </body>
+</html>

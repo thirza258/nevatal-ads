@@ -1,0 +1,53 @@
+# --- Environment and secrets -------------------------------------------------
+.env
+deploy/.env
+deploy/.env.*
+!deploy/.env.example
+deploy/cloudflared/config.yml
+deploy/cloudflared/*.json
+deploy/nginx/certs/
+
+# --- Runtime data ------------------------------------------------------------
+data/*.db
+data/*.db-*
+data/*.sqlite
+data/*.sqlite3
+data/backups/
+
+# --- Dependencies and build output -------------------------------------------
+**/node_modules/
+apps/dashboard/dist/
+services/api/build/
+**/*.tsbuildinfo
+.vite/
+coverage/
+playwright-report/
+test-results/
+
+# apps/sdk/dist is intentionally committed: deploy/docker-compose.yml mounts it
+# into the API container, and the quick start does not build the SDK on the host.
+
+# --- C/C++ artifacts ---------------------------------------------------------
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# --- Logs and temporary files ------------------------------------------------
+*.log
+logs/
+*.swp
+*.swo
+*~
+*.tmp
+
+# --- Editors and OS files ----------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

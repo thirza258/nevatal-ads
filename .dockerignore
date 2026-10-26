@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/build
+.git
+.env
+**/.env
+data
+deploy/nginx/certs
+deploy/demo
+docs
+scripts
+deploy/cloudflared

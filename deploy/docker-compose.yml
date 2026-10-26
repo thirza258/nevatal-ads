@@ -1,0 +1,82 @@
+name: adcontrol
+
+services:
+  api:
+    build:
+      context: ../services/api
+    image: adcontrol-api:latest
+    restart: unless-stopped
+    environment:
+      ADCONTROL_ENV: ${ADCONTROL_ENV:-production}
+      PORT: "8088"
+      HOST: 0.0.0.0
+      DB_PATH: /data/adcontrol.db
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in deploy/.env (openssl rand -hex 32)}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      TRUST_PROXY: "true"
+      SDK_PATH: /app/sdk/adcontrol.js
+      EVENT_RETENTION_DAYS: ${EVENT_RETENTION_DAYS:-180}
+      BACKUP_DIR: /data/backups
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION: ${BACKUP_RETENTION:-14}
+      # Canonical public origin used in sitemap.xml, robots.txt, and learning
+      # metadata. Never include a path or trailing slash.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://ads.nevatal.id}
+    volumes:
+      - ../data:/data
+      - ../apps/sdk/dist:/app/sdk:ro
+    expose:
+      - "8088"
+    user: "${ADCONTROL_UID:-1000}:${ADCONTROL_GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8088/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/nginx/Dockerfile
+    image: adcontrol-web:latest
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      # Bind to loopback by default: the host Cloudflare Tunnel connector
+      # connects to this port. Set HTTP_BIND=0.0.0.0 only for direct exposure.
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-18080}:80"
+    volumes:
+      - ./demo:/usr/share/nginx/demo:ro
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=32m
+      - /var/run:size=1m
+      - /tmp:size=8m
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

@@ -1,0 +1,354 @@
+/*
+ * AdControl delivery SDK styles.
+ * Served as /sdk/v1/adcontrol.css and loaded by the SDK. Host pages can allow
+ * this stylesheet with `style-src https://<adcontrol-host>` instead of
+ * enabling inline styles.
+ */
+
+.adcontrol-root,
+.adcontrol-root * {
+  box-sizing: border-box;
+}
+
+.adcontrol-root {
+  display: block;
+  width: 100%;
+  margin: 12px 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #0f172a;
+  text-align: left;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Blank fallback: reserve the placement's dimensions without showing an ad. */
+.adcontrol-placeholder {
+  display: block;
+  width: 100%;
+  margin: 12px 0;
+  background: transparent;
+}
+
+.adcontrol-root a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.adcontrol-root a:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.adcontrol-banner {
+  position: relative;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.adcontrol-banner:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.adcontrol-banner-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 360px;
+  aspect-ratio: var(--adcontrol-aspect, auto);
+  object-fit: cover;
+}
+
+.adcontrol-banner-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 18px;
+  min-height: 72px;
+  justify-content: center;
+}
+
+.adcontrol-banner-fallback-title {
+  font-size: 15px;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.adcontrol-banner-fallback-body {
+  font-size: 12px;
+  color: #475569;
+}
+
+.adcontrol-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.adcontrol-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.adcontrol-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.adcontrol-native-media {
+  position: relative;
+  display: block;
+  width: 100%;
+  background: #f1f5f9;
+}
+
+.adcontrol-native-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: cover;
+}
+
+.adcontrol-native-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px 16px;
+}
+
+.adcontrol-native-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: #0f172a;
+}
+
+.adcontrol-native-desc {
+  display: block;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #475569;
+}
+
+.adcontrol-native-cta {
+  align-self: flex-start;
+  display: inline-block;
+  margin-top: 4px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  background: #1d4ed8;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.adcontrol-card:hover .adcontrol-native-cta {
+  background: #1e40af;
+}
+
+.adcontrol-product-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.adcontrol-product-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.adcontrol-product-link {
+  display: flex;
+  gap: 14px;
+  padding: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.adcontrol-product-media {
+  position: relative;
+  flex: 0 0 132px;
+  width: 132px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+
+.adcontrol-product-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 110px;
+  max-height: 180px;
+  object-fit: cover;
+}
+
+.adcontrol-product-media .adcontrol-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+}
+
+.adcontrol-product-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.adcontrol-product-merchant {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.adcontrol-product-title {
+  display: block;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.adcontrol-product-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #475569;
+  font-size: 12.5px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.adcontrol-product-price {
+  display: block;
+  color: #b91c1c;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.adcontrol-product-cta {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #ea580c;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.adcontrol-product-link:hover .adcontrol-product-cta {
+  background: #c2410c;
+}
+
+.adcontrol-disclosure {
+  margin: 0;
+  padding: 8px 12px 10px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 420px) {
+  .adcontrol-product-link {
+    flex-direction: column;
+  }
+
+  .adcontrol-product-media {
+    flex-basis: auto;
+    width: 100%;
+    height: 160px;
+  }
+}
+
+.adcontrol-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 3px 0;
+  color: #1d4ed8;
+  font-size: 14px;
+  font-weight: 550;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.adcontrol-text-link:hover .adcontrol-text-label {
+  text-decoration-thickness: 2px;
+}
+
+.adcontrol-text-badge {
+  flex: none;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.adcontrol-text-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adcontrol-banner,
+  .adcontrol-card {
+    transition: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .adcontrol-root {
+    margin: 10px 0;
+  }
+  .adcontrol-native-body {
+    padding: 12px 14px 14px;
+  }
+}
