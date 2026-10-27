@@ -1,0 +1,46 @@
+{
+  "protocol_version": "0.1",
+  "organization": {
+    "name": "Nevatal",
+    "domain": "marketing.nevatal.id"
+  },
+  "auth": {
+    "issuer": "https://marketing.nevatal.id",
+    "direct": {
+      "scopes": [
+        "poppy:read",
+        "poppy:write"
+      ]
+    },
+    "device": {
+      "scopes": [
+        "poppy:read",
+        "poppy:write"
+      ]
+    }
+  },
+  "agent": {
+    "protocols": [
+      {
+        "type": "poppy",
+        "endpoint": "https://marketing.nevatal.id/api/"
+      }
+    ]
+  },
+  "apis": [
+    {
+      "type": "openapi",
+      "url": "https://marketing.nevatal.id/api/v3/catalog/courses",
+      "description": "AdControl Learning API"
+    },
+    {
+      "type": "mcp",
+      "url": "https://marketing.nevatal.id/mcp",
+      "description": "AdControl Learning MCP server"
+    }
+  ],
+  "web": {
+    "browser_session_endpoint": "https://marketing.nevatal.id/"
+  },
+  "extensions": {}
+}

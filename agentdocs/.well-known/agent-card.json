@@ -1,0 +1,50 @@
+{
+  "name": "AdControl Learning Agent",
+  "description": "Free practical courses on digital marketing, SEO, GEO, SEM, affiliate marketing, analytics and conversion optimization.",
+  "url": "https://marketing.nevatal.id",
+  "provider": {
+    "name": "Nevatal",
+    "url": "https://marketing.nevatal.id"
+  },
+  "version": "1.0.0",
+  "protocolVersion": "0.3.0",
+  "preferredTransport": "JSONRPC",
+  "supportedInterfaces": [
+    {
+      "url": "https://marketing.nevatal.id/api",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "0.3.0"
+    }
+  ],
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "skills": [
+    {
+      "id": "find-course",
+      "name": "Find Course",
+      "description": "Find public marketing courses by topic or keyword."
+    },
+    {
+      "id": "browse-topics",
+      "name": "Browse Topics",
+      "description": "Browse marketing topics and learning paths."
+    },
+    {
+      "id": "become-publisher",
+      "name": "Become a Publisher",
+      "description": "Read the publisher onboarding information."
+    }
+  ],
+  "authentication": {
+    "type": "oauth2",
+    "discovery_url": "https://marketing.nevatal.id/.well-known/oauth-authorization-server"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "specVersion": "1.0",
+  "host": {
+    "displayName": "AdControl Learning",
+    "identifier": "did:web:marketing.nevatal.id"
+  },
+  "entries": [
+    {
+      "identifier": "urn:air:marketing.nevatal.id:api:site",
+      "displayName": "AdControl Learning API",
+      "type": "application/json",
+      "url": "https://marketing.nevatal.id/api/v3/catalog/courses",
+      "representativeQueries": [
+        "what does AdControl Learning do",
+        "get data from AdControl Learning"
+      ]
+    },
+    {
+      "identifier": "urn:air:marketing.nevatal.id:server:mcp",
+      "displayName": "AdControl Learning MCP Server",
+      "type": "application/mcp-server-card+json",
+      "url": "https://marketing.nevatal.id/.well-known/mcp/server-card.json",
+      "representativeQueries": [
+        "query AdControl Learning"
+      ]
+    }
+  ]
+}

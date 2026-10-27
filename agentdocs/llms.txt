@@ -1,0 +1,11 @@
+# AdControl Learning
+
+> Free practical courses on digital marketing, SEO, GEO, SEM, affiliate marketing, analytics and conversion optimization.
+
+## Endpoints
+- Homepage: https://marketing.nevatal.id/
+- API: https://marketing.nevatal.id/api/v3/catalog/courses
+- API Catalog: https://marketing.nevatal.id/.well-known/api-catalog
+- Agent Card: https://marketing.nevatal.id/.well-known/agent-card.json
+- AI Catalog: https://marketing.nevatal.id/.well-known/ai-catalog.json
+- Authentication Guide: https://marketing.nevatal.id/auth.md

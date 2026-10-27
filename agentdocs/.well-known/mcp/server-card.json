@@ -1,0 +1,19 @@
+{
+  "serverInfo": {
+    "name": "adcontrol-learning-mcp",
+    "version": "1.0.0"
+  },
+  "endpoint": "https://marketing.nevatal.id/mcp",
+  "capabilities": {
+    "tools": {
+      "listChanged": false
+    },
+    "resources": {
+      "subscribe": false,
+      "listChanged": false
+    },
+    "prompts": {
+      "listChanged": false
+    }
+  }
+}

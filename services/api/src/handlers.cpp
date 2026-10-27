@@ -4032,6 +4032,7 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
         const std::string base = learning_public_base_url();
         std::ostringstream body;
         body << "User-agent: *\n"
+             << "Content-Signal: ai-train=yes, search=yes, ai-input=yes\n"
              << "Allow: /\n"
              << "Allow: /courses\n"
              << "Allow: /topics\n"
@@ -4046,8 +4047,9 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
              << "Disallow: /my-learning\n"
              << "Disallow: /dashboard\n"
              << "\n"
-             << "Sitemap: " << base << "/sitemap.xml\n";
-        res.set_header("Cache-Control", "public, max-age=1800");
+             << "Sitemap: " << base << "/sitemap.xml\n"
+             << "Agentmap: " << base << "/.well-known/ai-catalog.json\n";
+        res.set_header("Cache-Control", "no-cache, must-revalidate");
         res.set_content(body.str(), "text/plain; charset=utf-8");
     });
 

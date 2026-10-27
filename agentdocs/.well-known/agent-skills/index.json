@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "find-course",
+      "type": "skill-md",
+      "description": "Find public marketing courses by topic or keyword.",
+      "url": "https://marketing.nevatal.id/.well-known/agent-skills/find-course/SKILL.md"
+    },
+    {
+      "name": "browse-topics",
+      "type": "skill-md",
+      "description": "Browse marketing topics and learning paths.",
+      "url": "https://marketing.nevatal.id/.well-known/agent-skills/browse-topics/SKILL.md"
+    },
+    {
+      "name": "become-publisher",
+      "type": "skill-md",
+      "description": "Read the publisher onboarding information.",
+      "url": "https://marketing.nevatal.id/.well-known/agent-skills/become-publisher/SKILL.md"
+    }
+  ]
+}

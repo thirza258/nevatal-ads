@@ -1,0 +1,25 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://marketing.nevatal.id/api",
+      "service-desc": [
+        {
+          "href": "https://marketing.nevatal.id/api/v3/catalog/courses",
+          "type": "application/json"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://marketing.nevatal.id/auth.md",
+          "type": "text/markdown"
+        }
+      ],
+      "status": [
+        {
+          "href": "https://marketing.nevatal.id/api/v3/catalog/courses",
+          "type": "application/json"
+        }
+      ]
+    }
+  ]
+}

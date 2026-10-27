@@ -15,5 +15,8 @@ FROM nginx:1.27-alpine
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=dashboard-build /app/dist /usr/share/nginx/html
+COPY agentdocs/.well-known /usr/share/nginx/html/.well-known
+COPY agentdocs/auth.md agentdocs/llms.txt /usr/share/nginx/html/
+COPY agentdocs/webmcp.js /usr/share/nginx/html/webmcp.js
 
 EXPOSE 80
