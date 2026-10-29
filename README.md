@@ -410,6 +410,8 @@ checks, off-host copies, retention, and recovery testing.
 
 ## Documentation
 
+- [In-app documentation](https://marketing.nevatal.id/docs) — administrator, publisher,
+  learning, SDK, security, and operations guide served by the app itself
 - [Architecture and delivery flow](docs/architecture.md)
 - [Marketing learning platform](docs/learning.md)
 - [Publisher integration and CSP/SRI](docs/integration.md)

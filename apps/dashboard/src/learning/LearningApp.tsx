@@ -17,6 +17,7 @@ import {
   TopicPage,
   TopicsPage,
 } from './pages/catalog';
+import { DocsPage } from './pages/docs';
 import { MyLearningPage, PlayerPage } from './pages/learner';
 import { BecomeClientPage, BecomePublisherPage } from './pages/partners';
 
@@ -64,6 +65,7 @@ const LearningRoutes: React.FC = () => {
         case 'author': return <AuthorCoursesPage />;
         case 'become-a-publisher': return <BecomePublisherPage />;
         case 'become-a-client': return <BecomeClientPage />;
+        case 'docs': return <DocsPage />;
         case 'privacy': return <PrivacyPage />;
         case 'accessibility': return <AccessibilityPage />;
         default: return <NotFoundPage />;

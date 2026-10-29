@@ -3,6 +3,7 @@ import {
   BookOpen,
   Compass,
   ExternalLink,
+  FileText,
   Globe2,
   GraduationCap,
   LayoutDashboard,
@@ -52,6 +53,7 @@ const navItems = [
   { to: '/learning-paths', label: 'Learning paths', icon: GraduationCap },
   { to: '/become-a-publisher', label: 'For publishers', icon: Globe2 },
   { to: '/become-a-client', label: 'For clients', icon: Megaphone },
+  { to: '/docs', label: 'Docs', icon: FileText },
 ];
 
 export const LearningLayout: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -285,6 +287,7 @@ export const LearningLayout: React.FC<{ children: ReactNode }> = ({ children }) 
             <ul className="mt-3 space-y-2 text-sm">
               <li><Link to="/become-a-publisher" className="text-slate-700 hover:text-teal-900">Become a publisher</Link></li>
               <li><Link to="/become-a-client" className="text-slate-700 hover:text-teal-900">Become a client</Link></li>
+              <li><Link to="/docs" className="text-slate-700 hover:text-teal-900">Documentation</Link></li>
               <li><Link to="/privacy" className="text-slate-700 hover:text-teal-900">Privacy</Link></li>
               <li><Link to="/accessibility" className="text-slate-700 hover:text-teal-900">Accessibility</Link></li>
               <li><a href="/dashboard" className="text-slate-700 hover:text-teal-900">Operations dashboard</a></li>

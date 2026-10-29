@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { User } from '../types';
 import { api } from '../api';
-import { LogOut, Activity, GraduationCap, LayoutDashboard, Globe } from 'lucide-react';
+import { LogOut, Activity, GraduationCap, LayoutDashboard, Globe, BookOpen } from 'lucide-react';
 
 interface NavbarProps {
   user: User | null;
@@ -65,6 +65,15 @@ export const Navbar: React.FC<NavbarProps> = ({ user, onLogout, onOpenSandbox })
       </div>
 
       <div className="flex items-center gap-3">
+        <a
+          href="/docs"
+          className="hidden items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 sm:flex"
+          title="Read the AdControl documentation"
+        >
+          <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>Docs</span>
+        </a>
+
         <a
           href="/"
           className="hidden items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800 transition-colors hover:bg-teal-100 sm:flex"
