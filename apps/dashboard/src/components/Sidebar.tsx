@@ -4,6 +4,7 @@ import {
   Globe,
   LayoutGrid,
   Megaphone,
+  Mail,
   BarChart3,
   History,
   FlaskConical,
@@ -18,6 +19,7 @@ export type NavTab =
   | 'websites'
   | 'placements'
   | 'campaigns'
+  | 'email'
   | 'affiliate'
   | 'publishers'
   | 'inquiries'
@@ -39,6 +41,12 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'websites', label: 'Websites', icon: <Globe className="w-4 h-4" /> },
   { id: 'placements', label: 'Placements', icon: <LayoutGrid className="w-4 h-4" /> },
   { id: 'campaigns', label: 'Ads & Campaigns', icon: <Megaphone className="w-4 h-4" /> },
+  {
+    id: 'email',
+    label: 'Email Marketing',
+    icon: <Mail className="w-4 h-4" />,
+    roles: ['admin'],
+  },
   {
     id: 'affiliate',
     label: 'Affiliate Offers',

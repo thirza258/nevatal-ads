@@ -100,6 +100,39 @@ struct PartnerInquiry {
     }
 };
 
+// Administrator-managed SMTP transport for outbound email marketing. The
+// password ciphertext is deliberately excluded from to_json(); callers only
+// learn whether a password is stored.
+struct EmailSettings {
+    bool enabled = false;
+    std::string host;
+    int port = 587;
+    std::string encryption = "starttls"; // "starttls", "ssl", or "none"
+    std::string username;
+    std::string password_cipher; // v1:<iv>:<tag>:<ciphertext>
+    std::string from_email;
+    std::string from_name;
+    std::string reply_to;
+    std::string updated_at;
+    std::string updated_by;
+
+    nlohmann::json to_json() const {
+        return {
+            {"enabled", enabled},
+            {"host", host},
+            {"port", port},
+            {"encryption", encryption},
+            {"username", username},
+            {"password_set", !password_cipher.empty()},
+            {"from_email", from_email},
+            {"from_name", from_name},
+            {"reply_to", reply_to},
+            {"updated_at", updated_at},
+            {"updated_by", updated_by}
+        };
+    }
+};
+
 struct Site {
     std::string id;
     std::string workspace_id;

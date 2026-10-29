@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <optional>
 #include <chrono>
 #include <iomanip>
 #include <sstream>
@@ -147,6 +148,131 @@ inline std::string sha256_hex(const std::string& input) {
         ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
     }
     return ss.str();
+}
+
+inline int hex_nibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+inline std::string hex_encode(const unsigned char* data, size_t len) {
+    std::ostringstream ss;
+    for (size_t i = 0; i < len; ++i) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]);
+    }
+    return ss.str();
+}
+
+inline bool hex_decode(const std::string& hex, std::vector<unsigned char>& out) {
+    if (hex.size() % 2 != 0) return false;
+    out.clear();
+    out.reserve(hex.size() / 2);
+    for (size_t i = 0; i < hex.size(); i += 2) {
+        int high = hex_nibble(hex[i]);
+        int low = hex_nibble(hex[i + 1]);
+        if (high < 0 || low < 0) return false;
+        out.push_back(static_cast<unsigned char>((high << 4) | low));
+    }
+    return true;
+}
+
+// Authenticated encryption for write-only secrets stored in SQLite (currently
+// the SMTP password). AES-256-GCM with a random nonce; the key is derived from
+// SECRET_KEY, so rotating SECRET_KEY makes stored secrets unreadable and the
+// administrator must re-enter them.
+inline std::string encrypt_secret(const std::string& plaintext, const std::string& key_material) {
+    if (plaintext.empty() || key_material.empty()) return "";
+
+    unsigned char key[SHA256_DIGEST_LENGTH];
+    const std::string context = key_material + ":adcontrol:secret:v1";
+    SHA256(reinterpret_cast<const unsigned char*>(context.data()), context.size(), key);
+
+    unsigned char iv[12];
+    if (RAND_bytes(iv, sizeof(iv)) != 1) return "";
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return "";
+
+    std::vector<unsigned char> cipher(plaintext.size() + 16);
+    int len = 0;
+    int total = 0;
+    bool ok = EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) == 1 &&
+              EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, sizeof(iv), nullptr) == 1 &&
+              EVP_EncryptInit_ex(ctx, nullptr, nullptr, key, iv) == 1;
+    if (ok) {
+        ok = EVP_EncryptUpdate(ctx, cipher.data(), &len,
+                               reinterpret_cast<const unsigned char*>(plaintext.data()),
+                               static_cast<int>(plaintext.size())) == 1;
+        total = len;
+    }
+    if (ok) {
+        ok = EVP_EncryptFinal_ex(ctx, cipher.data() + total, &len) == 1;
+        total += len;
+    }
+
+    unsigned char tag[16];
+    if (ok) {
+        ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, sizeof(tag), tag) == 1;
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    if (!ok) return "";
+
+    return "v1:" + hex_encode(iv, sizeof(iv)) + ":" + hex_encode(tag, sizeof(tag)) + ":" +
+           hex_encode(cipher.data(), static_cast<size_t>(total));
+}
+
+inline std::optional<std::string> decrypt_secret(const std::string& encoded, const std::string& key_material) {
+    if (encoded.empty()) return std::string();
+    if (key_material.empty()) return std::nullopt;
+    if (encoded.rfind("v1:", 0) != 0) return std::nullopt;
+
+    std::vector<std::string> parts;
+    size_t start = 3;
+    for (int i = 0; i < 2; ++i) {
+        size_t sep = encoded.find(':', start);
+        if (sep == std::string::npos) return std::nullopt;
+        parts.push_back(encoded.substr(start, sep - start));
+        start = sep + 1;
+    }
+    parts.push_back(encoded.substr(start));
+    if (parts.size() != 3) return std::nullopt;
+
+    std::vector<unsigned char> iv, tag, cipher;
+    if (!hex_decode(parts[0], iv) || !hex_decode(parts[1], tag) || !hex_decode(parts[2], cipher)) {
+        return std::nullopt;
+    }
+    if (iv.size() != 12 || tag.size() != 16) return std::nullopt;
+
+    unsigned char key[SHA256_DIGEST_LENGTH];
+    const std::string context = key_material + ":adcontrol:secret:v1";
+    SHA256(reinterpret_cast<const unsigned char*>(context.data()), context.size(), key);
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return std::nullopt;
+
+    std::vector<unsigned char> plain(cipher.size() + 16);
+    int len = 0;
+    int total = 0;
+    bool ok = EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) == 1 &&
+              EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, static_cast<int>(iv.size()), nullptr) == 1 &&
+              EVP_DecryptInit_ex(ctx, nullptr, nullptr, key, iv.data()) == 1;
+    if (ok && !cipher.empty()) {
+        ok = EVP_DecryptUpdate(ctx, plain.data(), &len, cipher.data(), static_cast<int>(cipher.size())) == 1;
+        total = len;
+    }
+    if (ok) {
+        ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(tag.size()), tag.data()) == 1;
+    }
+    if (ok) {
+        ok = EVP_DecryptFinal_ex(ctx, plain.data() + total, &len) == 1;
+        total += len;
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    if (!ok) return std::nullopt;
+
+    return std::string(reinterpret_cast<char*>(plain.data()), static_cast<size_t>(total));
 }
 
 inline std::string hmac_sha256_hex(const std::string& key, const std::string& data) {

@@ -129,6 +129,47 @@ Read-only operational values, never `SECRET_KEY`:
 }
 ```
 
+### Email marketing SMTP (`/api/v1/email/...`)
+
+Administrator only. The SMTP password is write-only: it is encrypted with
+`SECRET_KEY` at rest, omitted from every response (only `password_set` is
+returned), and never written to the audit log.
+
+`GET /api/v1/email/settings` returns the current configuration, or defaults when
+nothing has been saved:
+
+```json
+{
+  "settings": {
+    "enabled": false,
+    "host": "",
+    "port": 587,
+    "encryption": "starttls",
+    "username": "",
+    "password_set": false,
+    "from_email": "",
+    "from_name": "",
+    "reply_to": "",
+    "updated_at": "",
+    "updated_by": ""
+  }
+}
+```
+
+`PUT /api/v1/email/settings` accepts `enabled`, `host`, `port`, `encryption`
+(`starttls`, `ssl`, or `none`), `username`, `from_email`, `from_name`,
+`reply_to`, and an optional `password`. Omit `password` to keep the stored value,
+send a string to replace it, or send `""`/`null` to clear it. Enabling email
+requires a valid host, sender address, and both username and password (or
+neither, for an unauthenticated relay). Changes are audited as
+`UPDATE_EMAIL_SETTINGS` without secret material.
+
+`POST /api/v1/email/test` with `{ "to": "you@example.com" }` connects to the
+saved server (STARTTLS and SSL use certificate-verified TLS), submits one HTML
+test message, and returns `{ "status": "sent", "message": "…" }`. Failures return
+`502` with the SMTP error. Test sends are limited to five per administrator per
+minute and audited as `SEND_TEST_EMAIL` with only the recipient domain.
+
 ### `GET /api/v1/sandbox/sites/{site_id}`
 
 Authenticated preview data for the dashboard sandbox. Bypasses the origin

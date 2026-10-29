@@ -14,6 +14,8 @@ import {
   PartnerInquiryKind,
   PartnerInquiryStatus,
   AppSettings,
+  EmailSettings,
+  EmailSettingsPayload,
   SandboxData,
 } from './types';
 
@@ -145,6 +147,27 @@ export const api = {
 
   async getSettings(): Promise<AppSettings> {
     return request<AppSettings>('/api/v1/settings');
+  },
+
+  // Email marketing / SMTP (administrator only)
+  async getEmailSettings(): Promise<EmailSettings> {
+    const res = await request<{ settings: EmailSettings }>('/api/v1/email/settings');
+    return res.settings;
+  },
+
+  async updateEmailSettings(payload: EmailSettingsPayload): Promise<EmailSettings> {
+    const res = await request<{ settings: EmailSettings }>('/api/v1/email/settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    return res.settings;
+  },
+
+  async sendTestEmail(to: string): Promise<{ status: string; message: string }> {
+    return request<{ status: string; message: string }>('/api/v1/email/test', {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    });
   },
 
   // Sites

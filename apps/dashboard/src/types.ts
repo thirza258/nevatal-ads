@@ -184,6 +184,34 @@ export interface PartnerInquiry {
   updated_at: string;
 }
 
+export type SmtpEncryption = 'starttls' | 'ssl' | 'none';
+
+export interface EmailSettings {
+  enabled: boolean;
+  host: string;
+  port: number;
+  encryption: SmtpEncryption | string;
+  username: string;
+  password_set: boolean;
+  from_email: string;
+  from_name: string;
+  reply_to: string;
+  updated_at: string;
+  updated_by: string;
+}
+
+export interface EmailSettingsPayload {
+  enabled: boolean;
+  host: string;
+  port: number;
+  encryption: SmtpEncryption;
+  username: string;
+  from_email: string;
+  from_name: string;
+  reply_to: string;
+  password?: string;
+}
+
 export interface AppSettings {
   app_name: string;
   environment: string;

@@ -40,11 +40,13 @@ allowlist, and server-side revalidation on every click.
 | Domain verification token | Site row + authenticated verification endpoint | Random per-site token; omitted from the normal site object; cleared on verification |
 | Affiliate URLs | Offer row, authenticated dashboard responses, and the outbound redirect only | Not a secret, but never included in public delivery config or visitor-page DOM |
 | Provider credentials | Not used in Phase 2 | No Shopee API or ad-network credentials are stored. Future credentials must be write-only, encrypted at rest, and never returned to clients. |
+| SMTP password (email marketing) | `email_settings.password_cipher` | AES-256-GCM with a key derived from `SECRET_KEY`; write-only in the API (only `password_set` is returned); never logged, audited, or included in backups in plaintext form |
 | Click-token signing key | Derived from `SECRET_KEY` | HMAC-SHA256 over campaign id, issue time, and nonce |
 
 `deploy/.env` is gitignored and should be `chmod 600`. The API never logs request
 bodies, passwords, tokens, or `SECRET_KEY`. Changing `SECRET_KEY` invalidates
-all outstanding click tokens and breaks IP-hash continuity. It does **not**
+all outstanding click tokens, breaks IP-hash continuity, and makes the stored
+SMTP password unreadable (re-enter it under **Email Marketing**). It does **not**
 invalidate admin sessions, which are opaque database rows independent of the
 signing key; change the admin password to invalidate sessions.
 
@@ -488,9 +490,11 @@ maintenance.
 
 The SQLite database contains password hashes, session tokens, public site keys,
 campaigns, event analytics, learning accounts, enrollments, progress, quiz
-attempts, authoring revisions, partner-inquiry applications, and audit logs. It
-is not encrypted at rest by the application. Use full-disk encryption or an encrypted volume, restrict filesystem
-access, and encrypt off-host backup copies. Backup guidance, integrity
+attempts, authoring revisions, partner-inquiry applications, and audit logs. The
+SMTP password is stored as application-level ciphertext; the database is
+otherwise not encrypted at rest by the application. Use full-disk encryption or
+an encrypted volume, restrict filesystem access, and encrypt off-host backup
+copies. Backup guidance, integrity
 verification, and restore drills are in
 [backup-restore.md](backup-restore.md). Deleting a learner removes current rows,
 but backups and WAL history may retain the data until their retention expires.

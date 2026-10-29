@@ -23,6 +23,7 @@ set(COMMON_SOURCES
     src/db.cpp
     src/learning_db.cpp
     src/handlers.cpp
+    src/smtp.cpp
 )
 
 # Main Executable
@@ -46,6 +47,7 @@ add_executable(adcontrol-tests
     tests/test_main.cpp
     src/db.cpp
     src/learning_db.cpp
+    src/smtp.cpp
 )
 
 target_link_libraries(adcontrol-tests PRIVATE

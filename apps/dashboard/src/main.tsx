@@ -9,6 +9,7 @@ const DASHBOARD_TABS = new Set([
   'websites',
   'placements',
   'campaigns',
+  'email',
   'affiliate',
   'publishers',
   'analytics',

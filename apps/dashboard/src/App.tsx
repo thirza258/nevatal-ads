@@ -9,6 +9,7 @@ import { OverviewView } from './views/OverviewView';
 import { WebsitesView } from './views/WebsitesView';
 import { PlacementsView } from './views/PlacementsView';
 import { CampaignsView } from './views/CampaignsView';
+import { EmailMarketingView } from './views/EmailMarketingView';
 import { AffiliateOffersView } from './views/AffiliateOffersView';
 import { PublishersView } from './views/PublishersView';
 import { InquiriesView } from './views/InquiriesView';
@@ -282,6 +283,8 @@ const App: React.FC = () => {
             openCreateModalDirectly={quickCreate === 'campaigns'}
           />
         );
+      case 'email':
+        return <EmailMarketingView onNotify={notify} />;
       case 'affiliate':
         return <AffiliateOffersView onNotify={notify} role={user.role} />;
       case 'publishers':

@@ -356,6 +356,25 @@ bool Database::run_migrations() {
         CREATE INDEX IF NOT EXISTS idx_partner_inquiries_created ON partner_inquiries(created_at);
         CREATE INDEX IF NOT EXISTS idx_partner_inquiries_kind ON partner_inquiries(kind);
         CREATE INDEX IF NOT EXISTS idx_partner_inquiries_status ON partner_inquiries(status);
+
+        -- Single-row SMTP configuration for administrator-managed email. The
+        -- password is AES-256-GCM ciphertext derived from SECRET_KEY and is
+        -- never returned by the API.
+        CREATE TABLE IF NOT EXISTS email_settings (
+            id TEXT PRIMARY KEY CHECK (id = 'default'),
+            enabled INTEGER NOT NULL DEFAULT 0,
+            host TEXT NOT NULL DEFAULT '',
+            port INTEGER NOT NULL DEFAULT 587,
+            encryption TEXT NOT NULL DEFAULT 'starttls'
+                CHECK (encryption IN ('starttls', 'ssl', 'none')),
+            username TEXT NOT NULL DEFAULT '',
+            password_cipher TEXT NOT NULL DEFAULT '',
+            from_email TEXT NOT NULL DEFAULT '',
+            from_name TEXT NOT NULL DEFAULT '',
+            reply_to TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL,
+            updated_by TEXT NOT NULL DEFAULT ''
+        );
     )";
 
     char* err_msg = nullptr;
@@ -1087,6 +1106,80 @@ bool Database::update_partner_inquiry_status(const std::string& id, const std::s
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE && sqlite3_changes(db_) > 0;
+}
+
+// Email / SMTP settings
+std::optional<EmailSettings> Database::get_email_settings() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "SELECT enabled, host, port, encryption, username, password_cipher, "
+        "from_email, from_name, reply_to, updated_at, updated_by "
+        "FROM email_settings WHERE id = 'default' LIMIT 1;";
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+
+    std::optional<EmailSettings> result;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto text = [&](int index) -> std::string {
+            const char* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, index));
+            return value ? value : "";
+        };
+        EmailSettings settings;
+        settings.enabled = sqlite3_column_int(stmt, 0) != 0;
+        settings.host = text(1);
+        settings.port = sqlite3_column_int(stmt, 2);
+        settings.encryption = text(3);
+        settings.username = text(4);
+        settings.password_cipher = text(5);
+        settings.from_email = text(6);
+        settings.from_name = text(7);
+        settings.reply_to = text(8);
+        settings.updated_at = text(9);
+        settings.updated_by = text(10);
+        result = settings;
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+bool Database::save_email_settings(const EmailSettings& settings) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const std::string now = utils::get_current_iso8601();
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = R"(
+        INSERT INTO email_settings
+            (id, enabled, host, port, encryption, username, password_cipher,
+             from_email, from_name, reply_to, updated_at, updated_by)
+        VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            enabled = excluded.enabled,
+            host = excluded.host,
+            port = excluded.port,
+            encryption = excluded.encryption,
+            username = excluded.username,
+            password_cipher = excluded.password_cipher,
+            from_email = excluded.from_email,
+            from_name = excluded.from_name,
+            reply_to = excluded.reply_to,
+            updated_at = excluded.updated_at,
+            updated_by = excluded.updated_by;
+    )";
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, settings.enabled ? 1 : 0);
+    sqlite3_bind_text(stmt, 2, settings.host.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 3, settings.port);
+    sqlite3_bind_text(stmt, 4, settings.encryption.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 5, settings.username.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 6, settings.password_cipher.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 7, settings.from_email.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 8, settings.from_name.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 9, settings.reply_to.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 10, now.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 11, settings.updated_by.c_str(), -1, SQLITE_STATIC);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 // Affiliate offers

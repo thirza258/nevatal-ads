@@ -12,6 +12,7 @@
 
 #include "utils.hpp"
 #include "db.hpp"
+#include "smtp.hpp"
 
 #ifndef _WIN32
 #include <sys/stat.h>
@@ -547,15 +548,175 @@ void test_partner_inquiries() {
     std::cout << "[PASS] Partner inquiry persistence and status tests passed." << std::endl;
 }
 
+void test_secret_encryption() {
+    using namespace adcontrol::utils;
+
+    const std::string key = "unit-test-secret-key-material";
+    const std::string cipher = encrypt_secret("p@ss w0rd!", key);
+    assert(!cipher.empty());
+    assert(cipher.rfind("v1:", 0) == 0);
+    assert(cipher.find("p@ss") == std::string::npos);
+
+    auto plain = decrypt_secret(cipher, key);
+    assert(plain.has_value());
+    assert(*plain == "p@ss w0rd!");
+
+    // A different SECRET_KEY (or a tampered payload) must not decrypt.
+    assert(!decrypt_secret(cipher, "another-key").has_value());
+    std::string tampered = cipher;
+    tampered.back() = tampered.back() == '0' ? '1' : '0';
+    assert(!decrypt_secret(tampered, key).has_value());
+
+    assert(encrypt_secret("", key).empty());
+    auto empty = decrypt_secret("", key);
+    assert(empty.has_value() && empty->empty());
+    assert(!decrypt_secret("not-a-secret", key).has_value());
+
+    std::cout << "[PASS] SMTP secret encryption tests passed." << std::endl;
+}
+
+void test_smtp_validation_and_message() {
+    using namespace adcontrol::smtp;
+
+    assert(is_valid_host("smtp.example.com"));
+    assert(is_valid_host("localhost"));
+    assert(!is_valid_host(""));
+    assert(!is_valid_host("http://smtp.example.com"));
+    assert(!is_valid_host("-bad.example.com"));
+    assert(!is_valid_host("bad..example.com"));
+    assert(!is_valid_host("smtp example.com"));
+
+    assert(is_valid_email("user@example.com"));
+    assert(is_valid_email("first.last+tag@sub.example.co.uk"));
+    assert(!is_valid_email("user@"));
+    assert(!is_valid_email("user example.com"));
+    assert(!is_valid_email("user@example.com\r\nBcc: evil@example.com"));
+
+    Settings settings;
+    settings.host = "smtp.example.com";
+    settings.port = 587;
+    settings.encryption = "starttls";
+    settings.username = "user";
+    settings.password = "secret";
+    settings.from_email = "newsletter@example.com";
+    settings.from_name = "AdControl Marketing";
+    settings.reply_to = "replies@example.com";
+    assert(validate_settings(settings).empty());
+
+    Settings invalid = settings;
+    invalid.from_email = "not-an-email";
+    assert(!validate_settings(invalid).empty());
+    invalid = settings;
+    invalid.port = 70000;
+    assert(!validate_settings(invalid).empty());
+    invalid = settings;
+    invalid.encryption = "plaintext";
+    assert(!validate_settings(invalid).empty());
+    invalid = settings;
+    invalid.from_name = "Evil\r\nBcc: other@example.com";
+    assert(!validate_settings(invalid).empty());
+    invalid = settings;
+    invalid.reply_to = "bad";
+    assert(!validate_settings(invalid).empty());
+
+    const std::string message =
+        build_message(settings, "learner@example.com", "Your weekly picks", "<p>Hello</p>");
+    assert(message.find("From: AdControl Marketing <newsletter@example.com>\r\n") != std::string::npos);
+    assert(message.find("To: learner@example.com\r\n") != std::string::npos);
+    assert(message.find("Reply-To: replies@example.com\r\n") != std::string::npos);
+    assert(message.find("Subject: Your weekly picks\r\n") != std::string::npos);
+    assert(message.find("Content-Type: text/html; charset=UTF-8\r\n") != std::string::npos);
+    // The HTML body is base64 encoded, never injected as raw markup.
+    assert(message.find("<p>Hello</p>") == std::string::npos);
+
+    Settings encoded = settings;
+    encoded.from_name = "Név";
+    const std::string encoded_message =
+        build_message(encoded, "learner@example.com", "Héllo", "<p>x</p>");
+    assert(encoded_message.find("=?UTF-8?B?") != std::string::npos);
+    assert(encoded_message.find("\r\nBcc:") == std::string::npos);
+
+    std::cout << "[PASS] SMTP validation and message building tests passed." << std::endl;
+}
+
+void test_email_settings_persistence() {
+    adcontrol::Database db;
+    const std::string test_db = "test_email_settings_" + adcontrol::utils::random_hex(6) + ".db";
+    assert(db.init(test_db));
+
+    // No row is seeded; the API returns defaults until an administrator saves.
+    assert(!db.get_email_settings().has_value());
+
+    adcontrol::EmailSettings settings;
+    settings.enabled = true;
+    settings.host = "smtp.example.com";
+    settings.port = 465;
+    settings.encryption = "ssl";
+    settings.username = "newsletter";
+    settings.password_cipher = adcontrol::utils::encrypt_secret("smtp-password", "test-key");
+    settings.from_email = "newsletter@example.com";
+    settings.from_name = "Example News";
+    settings.reply_to = "replies@example.com";
+    settings.updated_by = "admin@example.com";
+    assert(!settings.password_cipher.empty());
+    assert(db.save_email_settings(settings));
+
+    auto loaded = db.get_email_settings();
+    assert(loaded.has_value());
+    assert(loaded->enabled);
+    assert(loaded->host == "smtp.example.com");
+    assert(loaded->port == 465);
+    assert(loaded->encryption == "ssl");
+    assert(loaded->username == "newsletter");
+    assert(loaded->password_cipher == settings.password_cipher);
+    assert(loaded->from_email == "newsletter@example.com");
+    assert(loaded->from_name == "Example News");
+    assert(loaded->reply_to == "replies@example.com");
+    assert(loaded->updated_by == "admin@example.com");
+    assert(!loaded->updated_at.empty());
+
+    // The dashboard representation reports only that a password exists.
+    auto json = loaded->to_json();
+    assert(json["password_set"] == true);
+    assert(json.find("password_cipher") == json.end());
+    assert(json.find("password") == json.end());
+    assert(json.dump().find("smtp-password") == std::string::npos);
+
+    // A second save updates the single row instead of inserting another.
+    loaded->enabled = false;
+    loaded->port = 587;
+    loaded->encryption = "starttls";
+    loaded->password_cipher.clear();
+    assert(db.save_email_settings(*loaded));
+
+    auto updated = db.get_email_settings();
+    assert(updated.has_value());
+    assert(!updated->enabled);
+    assert(updated->port == 587);
+    assert(updated->encryption == "starttls");
+    assert(updated->password_cipher.empty());
+    assert(updated->to_json()["password_set"] == false);
+
+    db.close();
+    std::remove(test_db.c_str());
+    std::filesystem::remove(test_db + "-wal");
+    std::filesystem::remove(test_db + "-shm");
+
+    std::cout << "[PASS] Email settings persistence tests passed." << std::endl;
+}
+
 int main() {
     std::cout << "Running AdControl Unit Tests..." << std::endl;
     test_url_safety();
     test_domain_matching();
     test_schedule_check();
     test_password_and_crypto();
+    test_secret_encryption();
+    test_smtp_validation_and_message();
     test_database_and_deduplication();
     test_phase2_tenancy_and_affiliate_metrics();
     test_partner_inquiries();
+    test_email_settings_persistence();
     test_online_backup();
     std::cout << "\nALL ADCONTROL TESTS PASSED SUCCESSFULLY!" << std::endl;
     return 0;

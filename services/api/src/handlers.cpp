@@ -1,5 +1,6 @@
 #include "handlers.hpp"
 #include "utils.hpp"
+#include "smtp.hpp"
 #include "json.hpp"
 #include <iostream>
 #include <fstream>
@@ -2211,6 +2212,224 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
             {"click_token_ttl_seconds", CLICK_TOKEN_TTL_SECONDS},
             {"delivery_rate_limit_per_minute", 240},
             {"event_rate_limit_per_minute", 600}
+        }).dump(), "application/json");
+    });
+
+    // ==========================================
+    // Email marketing / SMTP (administrator only)
+    // ==========================================
+    svr.Get("/api/v1/email/settings", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        EmailSettings settings;
+        if (auto stored = db_->get_email_settings()) settings = *stored;
+        res.set_content(nlohmann::json({{"settings", settings.to_json()}}).dump(),
+                        "application/json");
+    });
+
+    svr.Put("/api/v1/email/settings", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body)) return;
+
+        EmailSettings settings;
+        if (auto stored = db_->get_email_settings()) settings = *stored;
+
+        std::string error;
+        if (body.contains("enabled")) {
+            if (!body["enabled"].is_boolean()) {
+                json_error(res, 400, "enabled must be a boolean");
+                return;
+            }
+            settings.enabled = body["enabled"].get<bool>();
+        }
+        if (!read_string(body, "host", settings.host, error) ||
+            !read_string(body, "encryption", settings.encryption, error) ||
+            !read_string(body, "username", settings.username, error) ||
+            !read_string(body, "from_email", settings.from_email, error) ||
+            !read_string(body, "from_name", settings.from_name, error) ||
+            !read_string(body, "reply_to", settings.reply_to, error) ||
+            !read_int(body, "port", settings.port, error)) {
+            json_error(res, 400, error);
+            return;
+        }
+
+        settings.host = utils::trim_copy(settings.host);
+        settings.encryption = utils::to_lower_copy(utils::trim_copy(settings.encryption));
+        settings.username = utils::trim_copy(settings.username);
+        settings.from_email = utils::trim_copy(settings.from_email);
+        settings.from_name = utils::trim_copy(settings.from_name);
+        settings.reply_to = utils::trim_copy(settings.reply_to);
+
+        bool password_changed = false;
+        bool password_cleared = false;
+        if (body.contains("password")) {
+            const auto& value = body["password"];
+            std::string plain;
+            if (value.is_null()) {
+                plain.clear();
+            } else if (value.is_string()) {
+                plain = value.get<std::string>();
+            } else {
+                json_error(res, 400, "password must be a string or null");
+                return;
+            }
+            if (plain.empty()) {
+                password_cleared = !settings.password_cipher.empty();
+                settings.password_cipher.clear();
+            } else {
+                if (plain.size() > 512) {
+                    json_error(res, 400, "SMTP password is too long");
+                    return;
+                }
+                settings.password_cipher = utils::encrypt_secret(plain, secret_key_);
+                if (settings.password_cipher.empty()) {
+                    json_error(res, 500, "Could not encrypt the SMTP password");
+                    return;
+                }
+                password_changed = true;
+            }
+        }
+
+        if (!settings.username.empty() && !settings.password_cipher.empty()) {
+            // Keep the "username without password" case allowed (some relays use
+            // IP allowlists), but reject a password that can no longer be read.
+            if (!utils::decrypt_secret(settings.password_cipher, secret_key_)) {
+                json_error(res, 400, "Stored SMTP password could not be decrypted. Re-enter it.");
+                return;
+            }
+        }
+
+        if (settings.enabled || !settings.host.empty() || !settings.from_email.empty()) {
+            error = smtp::validate_settings(smtp::Settings{
+                settings.enabled, settings.host, settings.port, settings.encryption,
+                settings.username, "", settings.from_email, settings.from_name,
+                settings.reply_to});
+            if (!error.empty()) {
+                json_error(res, 400, error);
+                return;
+            }
+            if (settings.enabled && !settings.username.empty() && settings.password_cipher.empty()) {
+                json_error(res, 400, "Enter an SMTP password for the configured username");
+                return;
+            }
+            if (settings.enabled && settings.username.empty() && !settings.password_cipher.empty()) {
+                json_error(res, 400, "Enter an SMTP username or remove the stored password");
+                return;
+            }
+        }
+
+        settings.updated_by = user->email;
+        if (!db_->save_email_settings(settings)) {
+            json_error(res, 500, "Failed to save SMTP settings");
+            return;
+        }
+
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "UPDATE_EMAIL_SETTINGS";
+        al.entity_type = "email_settings";
+        al.entity_id = "default";
+        al.details = nlohmann::json({
+            {"enabled", settings.enabled},
+            {"host", settings.host},
+            {"port", settings.port},
+            {"encryption", settings.encryption},
+            {"password_changed", password_changed},
+            {"password_cleared", password_cleared}
+        }).dump();
+        db_->record_audit_log(al);
+
+        auto saved = db_->get_email_settings();
+        res.set_content(nlohmann::json({{"settings", saved ? saved->to_json() : settings.to_json()}}).dump(),
+                        "application/json");
+    });
+
+    svr.Post("/api/v1/email/test", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        if (!allow_request("email-test:" + user->id, 5, 60)) {
+            json_error(res, 429, "Too many test emails. Wait a minute and try again.");
+            return;
+        }
+
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body)) return;
+
+        std::string to;
+        std::string error;
+        if (!read_string(body, "to", to, error) || !smtp::is_valid_email(utils::trim_copy(to))) {
+            json_error(res, 400, "A valid recipient email address is required");
+            return;
+        }
+        to = utils::trim_copy(to);
+
+        auto stored = db_->get_email_settings();
+        if (!stored || stored->host.empty() || stored->from_email.empty()) {
+            json_error(res, 400, "SMTP is not configured yet. Save the server and sender details first.");
+            return;
+        }
+
+        std::string password;
+        if (!stored->password_cipher.empty()) {
+            auto decrypted = utils::decrypt_secret(stored->password_cipher, secret_key_);
+            if (!decrypted) {
+                json_error(res, 400,
+                    "The stored SMTP password could not be decrypted. Re-enter it and save again.");
+                return;
+            }
+            password = *decrypted;
+        }
+        if (!stored->username.empty() && password.empty()) {
+            json_error(res, 400, "Enter an SMTP password before sending a test email.");
+            return;
+        }
+        if (stored->username.empty() && !password.empty()) {
+            json_error(res, 400, "Enter an SMTP username before sending a test email.");
+            return;
+        }
+
+        smtp::Settings transport;
+        transport.enabled = stored->enabled;
+        transport.host = stored->host;
+        transport.port = stored->port;
+        transport.encryption = stored->encryption;
+        transport.username = stored->username;
+        transport.password = password;
+        transport.from_email = stored->from_email;
+        transport.from_name = stored->from_name;
+        transport.reply_to = stored->reply_to;
+
+        const std::string html =
+            "<p>This is a test message from AdControl.</p>"
+            "<p>If you received it, the SMTP configuration is working.</p>";
+        auto sent = smtp::send(transport, to, "AdControl SMTP test", html);
+
+        const std::string recipient_domain = to.substr(to.rfind('@') + 1);
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "SEND_TEST_EMAIL";
+        al.entity_type = "email_settings";
+        al.entity_id = "default";
+        al.details = nlohmann::json({{"ok", sent.ok}, {"recipient_domain", recipient_domain}}).dump();
+        db_->record_audit_log(al);
+
+        if (!sent.ok) {
+            std::cerr << "[SMTP] Test send failed: " << sent.error << std::endl;
+            json_error(res, 502, "Test email failed: " + sent.error);
+            return;
+        }
+
+        res.set_content(nlohmann::json({
+            {"status", "sent"},
+            {"message", "Test email sent to " + to + "."}
         }).dump(), "application/json");
     });
 

@@ -47,6 +47,11 @@ public:
     std::optional<PartnerInquiry> get_partner_inquiry(const std::string& id);
     bool update_partner_inquiry_status(const std::string& id, const std::string& status);
 
+    // Administrator-managed SMTP configuration (single row). The password is
+    // stored as ciphertext; encryption and decryption happen in the API layer.
+    std::optional<EmailSettings> get_email_settings();
+    bool save_email_settings(const EmailSettings& settings);
+
     // Affiliate offers
     std::vector<AffiliateOffer> list_affiliate_offers(const std::optional<std::string>& publisher_id = std::nullopt,
                                                        const std::optional<std::string>& status = std::nullopt);
