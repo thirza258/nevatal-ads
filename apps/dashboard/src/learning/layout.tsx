@@ -302,7 +302,7 @@ export const LearningLayout: React.FC<{ children: ReactNode }> = ({ children }) 
         </div>
         <div className="border-t border-slate-100">
           <div className="mx-auto flex w-full max-w-7xl flex-col gap-1 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-            <span>© {new Date().getFullYear()} AdControl Learning</span>
+            <span>© {new Date().getFullYear()} AdControl Learning · This project is under <a href="https://nevatal.id" className="text-teal-800 underline" target="_blank" rel="noopener noreferrer">nevatal.id</a> for educational purposes.</span>
             <span>Built for practical, responsible marketing.</span>
           </div>
         </div>
