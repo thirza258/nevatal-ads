@@ -14,6 +14,7 @@ import {
   PathPage,
   PathsPage,
   PrivacyPage,
+  TermsPage,
   TopicPage,
   TopicsPage,
 } from './pages/catalog';
@@ -67,6 +68,7 @@ const LearningRoutes: React.FC = () => {
         case 'become-a-client': return <BecomeClientPage />;
         case 'docs': return <DocsPage />;
         case 'privacy': return <PrivacyPage />;
+        case 'terms': return <TermsPage />;
         case 'accessibility': return <AccessibilityPage />;
         default: return <NotFoundPage />;
       }

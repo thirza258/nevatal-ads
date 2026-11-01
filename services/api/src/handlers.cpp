@@ -4231,6 +4231,8 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
         add_url("/learning-paths", "", "0.7");
         add_url("/become-a-publisher", "", "0.6");
         add_url("/become-a-client", "", "0.6");
+        add_url("/privacy", "", "0.5");
+        add_url("/terms", "", "0.5");
         for (const auto& topic : topics) {
             add_url("/topics/" + topic.slug, topic.updated_at, "0.6");
         }

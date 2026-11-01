@@ -1032,6 +1032,13 @@ export const PrivacyPage: React.FC = () => {
             </ul>
           </section>
 
+          <section aria-labelledby="privacy-ai">
+            <h2 id="privacy-ai" className="text-lg font-bold text-slate-950">Artificial Intelligence &amp; Third Parties</h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              AdControl is 100% self-hosted on private infrastructure. We do not send learner data, campaign records, or quiz telemetry to external AI models or services (such as OpenRouter). All operations are processed locally within our self-hosted boundary.
+            </p>
+          </section>
+
           <section aria-labelledby="privacy-storage">
             <h2 id="privacy-storage" className="text-lg font-bold text-slate-950">Sign-in and storage</h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
@@ -1052,10 +1059,83 @@ export const PrivacyPage: React.FC = () => {
           </section>
 
           <section aria-labelledby="privacy-contact">
-            <h2 id="privacy-contact" className="text-lg font-bold text-slate-950">Questions</h2>
+            <h2 id="privacy-contact" className="text-lg font-bold text-slate-950">Questions &amp; Contact</h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              This is a self-hosted deployment. Contact the AdControl administrator who provided your access
-              for any privacy request or concern.
+              This is a self-hosted deployment. For any privacy requests, questions, or data deletion inquiries, contact us at{' '}
+              <a href="mailto:nevatalapp@gmail.com" className="lc-link text-teal-800 underline">nevatalapp@gmail.com</a>.
+            </p>
+          </section>
+        </div>
+      </article>
+    </Container>
+  );
+};
+
+export const TermsPage: React.FC = () => {
+  useSeo({
+    title: 'Terms of Service',
+    description: 'Acceptable use and service terms for the self-hosted AdControl platform and courses.',
+    path: '/terms',
+  });
+  return (
+    <Container>
+      <Breadcrumbs items={[{ label: 'Home', to: '/' }, { label: 'Terms of Service' }]} />
+      <article className="lc-card mx-auto max-w-3xl p-6 sm:p-10">
+        <div className="lc-eyebrow">Legal</div>
+        <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Terms of Service</h1>
+        <p className="mt-4 text-sm leading-7 text-slate-600">
+          AdControl and AdControl Learning operate on private, self-hosted infrastructure. By accessing this platform,
+          courses, or management tools, you agree to these fair-use terms.
+        </p>
+
+        <div className="mt-8 space-y-8">
+          <section aria-labelledby="terms-selfhosted">
+            <h2 id="terms-selfhosted" className="text-lg font-bold text-slate-950">Self-Hosted Infrastructure</h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              AdControl is 100% self-hosted on private servers. Your data stays strictly on this platform and is never
+              monetized or sold to third-party data brokers. Services are provided on an &ldquo;as is&rdquo; basis for
+              internal campaign management and educational advancement.
+            </p>
+          </section>
+
+          <section aria-labelledby="terms-acceptable">
+            <h2 id="terms-acceptable" className="text-lg font-bold text-slate-950">Acceptable Use</h2>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-600">
+              <li>Do not attempt to disrupt delivery endpoints or launch denial-of-service traffic.</li>
+              <li>Do not forge click, impression, or event telemetry.</li>
+              <li>Do not publish deceptive, malicious, or unlawful advertisements or campaign URLs.</li>
+              <li>Learning exercises are educational and do not automatically alter live production ad inventory.</li>
+            </ul>
+          </section>
+
+          <section aria-labelledby="terms-ai">
+            <h2 id="terms-ai" className="text-lg font-bold text-slate-950">Artificial Intelligence Policy</h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              AdControl does not use third-party AI providers (such as OpenRouter) for ad delivery or learner evaluations.
+              All delivery and scoring logic executes strictly deterministically on our self-hosted backend.
+            </p>
+          </section>
+
+          <section aria-labelledby="terms-ip">
+            <h2 id="terms-ip" className="text-lg font-bold text-slate-950">Intellectual Property &amp; Content</h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              Course contents, exercises, and instructional text are provided for study and educational reference.
+              You retain rights to your campaign creative assets and original publication materials.
+            </p>
+          </section>
+
+          <section aria-labelledby="terms-changes">
+            <h2 id="terms-changes" className="text-lg font-bold text-slate-950">Modifications</h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              Terms may be updated periodically to reflect software releases and feature enhancements.
+            </p>
+          </section>
+
+          <section aria-labelledby="terms-contact">
+            <h2 id="terms-contact" className="text-lg font-bold text-slate-950">Legal Notices &amp; Contact</h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              For terms inquiries, abuse reports, or DMCA notices regarding this self-hosted deployment, contact{' '}
+              <a href="mailto:nevatalapp@gmail.com" className="lc-link text-teal-800 underline">nevatalapp@gmail.com</a>.
             </p>
           </section>
         </div>

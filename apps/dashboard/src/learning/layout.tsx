@@ -289,6 +289,7 @@ export const LearningLayout: React.FC<{ children: ReactNode }> = ({ children }) 
               <li><Link to="/become-a-client" className="text-slate-700 hover:text-teal-900">Become a client</Link></li>
               <li><Link to="/docs" className="text-slate-700 hover:text-teal-900">Documentation</Link></li>
               <li><Link to="/privacy" className="text-slate-700 hover:text-teal-900">Privacy</Link></li>
+              <li><Link to="/terms" className="text-slate-700 hover:text-teal-900">Terms of Service</Link></li>
               <li><Link to="/accessibility" className="text-slate-700 hover:text-teal-900">Accessibility</Link></li>
               <li><a href="/dashboard" className="text-slate-700 hover:text-teal-900">Operations dashboard</a></li>
               <li>
