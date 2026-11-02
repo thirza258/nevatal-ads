@@ -40,11 +40,93 @@ export interface PublicCourse {
   level: 'beginner' | 'intermediate' | 'advanced' | string;
   duration_minutes: number;
   outcomes: string[];
+  price_cents: number;
+  currency: string;
+  access_type: 'free' | 'paid' | string;
   version: number;
   published_at: string;
   last_reviewed_at: string;
   next_review_due_at: string;
   updated_at: string;
+}
+
+export interface BillingInvoiceItem {
+  id: string;
+  invoice_id: string;
+  kind: 'subscription' | 'overage' | 'course' | 'adjustment' | string;
+  description: string;
+  quantity: number;
+  unit_amount_cents: number;
+  amount_cents: number;
+  course_id: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface BillingInvoice {
+  id: string;
+  publisher_id: string;
+  user_id: string;
+  context: 'subscription' | 'course' | 'manual' | string;
+  period_start: string;
+  period_end: string;
+  currency: string;
+  subtotal_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  amount_paid_cents: number;
+  balance_cents: number;
+  status: 'open' | 'partially_paid' | 'paid' | 'overdue' | 'void' | string;
+  due_at: string;
+  issued_at: string;
+  paid_at: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+  items: BillingInvoiceItem[];
+}
+
+export interface BillingPayment {
+  id: string;
+  invoice_id: string;
+  publisher_id: string;
+  user_id: string;
+  amount_cents: number;
+  currency: string;
+  method: string;
+  reference: string;
+  notes: string;
+  received_at: string;
+  recorded_by: string;
+  created_at: string;
+}
+
+export interface CourseEntitlement {
+  id: string;
+  user_id: string;
+  course_id: string;
+  invoice_id: string;
+  status: 'active' | 'revoked' | string;
+  granted_at: string;
+  revoked_at: string;
+  created_at: string;
+  course?: PublicCourse | null;
+}
+
+export interface PurchaseResponse {
+  invoice: BillingInvoice;
+  payment_required: boolean;
+}
+
+export interface PurchaseHistoryResponse {
+  purchases: BillingInvoice[];
+  entitlements: CourseEntitlement[];
+  payments: BillingPayment[];
+}
+
+export interface PurchaseDetailResponse {
+  invoice: BillingInvoice;
+  payments: BillingPayment[];
 }
 
 export interface QuizOption {
@@ -336,6 +418,13 @@ export interface PartnerInquiryInput {
   company: string;
   website: string;
   message: string;
+  source?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_term?: string;
+  utm_content?: string;
+  referrer?: string;
   /** Hidden anti-bot field; people never see or fill it. */
   fax?: string;
 }

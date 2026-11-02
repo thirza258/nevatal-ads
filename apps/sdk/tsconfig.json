@@ -11,5 +11,5 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true
   },
-  "include": ["src/adcontrol.ts"]
+  "include": ["src/adcontrol.ts", "src/conversion.ts"]
 }

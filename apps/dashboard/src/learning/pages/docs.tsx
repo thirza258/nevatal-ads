@@ -567,8 +567,9 @@ export const DocsPage: React.FC = () => {
                     and pause toggle controls delivery without editing the creative.
                   </li>
                   <li>
-                    Selection is one deliverable campaign per placement. Priority chooses the
-                    campaign; weight is a deterministic tie-breaker, not weighted rotation.
+                    Selection is one deliverable campaign per placement per refresh. Priority gates
+                    the tier; eligible campaigns rotate by weight. A running experiment selects a
+                    variant first, and audience/daily-budget filters apply before selection.
                   </li>
                   <li>
                     Destinations are validated as safe HTTPS URLs and rechecked server-side on every
@@ -661,9 +662,10 @@ export const DocsPage: React.FC = () => {
                     Authenticated CSV export mirrors the current filters.
                   </li>
                   <li>
-                    <Code>confirmed_conversions</Code> and <Code>confirmed_commission</Code> are
-                    always 0 with provenance <Code>not_connected</Code> in this release. Clicks are
-                    observed behavior, not proof of a sale.
+                    <Code>confirmed_conversions</Code> and <Code>confirmed_commission</Code> include
+                    only approved or reconciled events from a configured conversion source (browser
+                    SDK, pixel, or HMAC-signed webhook). Clicks are observed behavior, not proof of a
+                    sale; a redirect is never inferred as revenue.
                   </li>
                   <li>Event retention defaults to 180 days and is configured by the operator.</li>
                 </Bullets>
@@ -830,8 +832,9 @@ export const DocsPage: React.FC = () => {
                 include only published catalog content; private app and API shells are excluded from
                 indexing. Canonical URLs use <Code>PUBLIC_BASE_URL</Code>, which must be an HTTPS
                 origin with no path or trailing slash. Route metadata is client-rendered. Courses
-                are free at launch: there is no checkout, paid entitlement, certificate, cohort, or
-                instructor marketplace.
+                can be free or paid. Paid courses create a manual invoice and unlock after an
+                administrator records settlement; there is no card checkout, certificate, cohort,
+                or instructor marketplace.
               </p>
             </div>
           </Section>
@@ -984,11 +987,14 @@ AdControl.destroy();  // remove ads and listeners`}</CodeBlock>
                   <li>An impression is qualified by viewport visibility, not just a render.</li>
                   <li>Clicks, outbound redirects, and affiliate clicks are observed events.</li>
                   <li>
-                    Confirmed conversions and commission are not connected in this release and stay
-                    0 with provenance <Code>not_connected</Code>.
+                    Confirmed conversions and commission are recorded only through a configured
+                    conversion source and become reportable after approval/reconciliation.
                   </li>
                   <li>Never infer a sale or commission from a click or a redirect.</li>
-                  <li>Externally confirmed orders require a separately approved integration.</li>
+                  <li>
+                    Conversion overview, funnel, attribution, and commission reconciliation live in
+                    the <Code>Conversions</Code> dashboard area.
+                  </li>
                 </Bullets>
               </div>
             </div>

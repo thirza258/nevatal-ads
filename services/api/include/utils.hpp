@@ -55,6 +55,36 @@ inline std::string to_lower_copy(std::string input) {
     return input;
 }
 
+inline std::string to_upper_copy(std::string input) {
+    std::transform(input.begin(), input.end(), input.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    return input;
+}
+
+// Start of the UTC calendar month containing `epoch`, e.g. 2026-11-01T00:00:00Z.
+inline std::string month_start_iso(std::time_t epoch) {
+    std::tm tm{};
+    gmtime_r(&epoch, &tm);
+    tm.tm_mday = 1;
+    tm.tm_hour = 0;
+    tm.tm_min = 0;
+    tm.tm_sec = 0;
+    return iso8601_from_epoch(timegm(&tm));
+}
+
+// Exclusive start of the next UTC calendar month. Usage queries use
+// occurred_at >= start AND occurred_at < end, so no event is double counted.
+inline std::string month_end_iso(std::time_t epoch) {
+    std::tm tm{};
+    gmtime_r(&epoch, &tm);
+    tm.tm_mday = 1;
+    tm.tm_hour = 0;
+    tm.tm_min = 0;
+    tm.tm_sec = 0;
+    tm.tm_mon += 1;
+    return iso8601_from_epoch(timegm(&tm));
+}
+
 // Strict-ish UTC ISO-8601 parsing. Accepts "YYYY-MM-DDTHH:MM[:SS][.fff][Z|+02:00|-05:00]".
 // A missing timezone is treated as UTC so older API clients cannot smuggle local time in.
 inline bool parse_iso8601_utc(const std::string& input, std::time_t& out_epoch) {

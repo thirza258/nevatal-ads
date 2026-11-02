@@ -156,7 +156,24 @@ const PartnerInquiryForm: React.FC<PartnerInquiryFormProps> = ({
     setError('');
     setSubmitting(true);
     try {
-      await learningApi.submitPartnerInquiry({ kind, ...values });
+      let params = new URLSearchParams();
+      try {
+        params = new URLSearchParams(window.location.search);
+      } catch (_) {
+        params = new URLSearchParams();
+      }
+      const attribution = (key: string) => params.get(key) || '';
+      await learningApi.submitPartnerInquiry({
+        kind,
+        ...values,
+        source: 'partner_page',
+        utm_source: attribution('utm_source'),
+        utm_medium: attribution('utm_medium'),
+        utm_campaign: attribution('utm_campaign'),
+        utm_term: attribution('utm_term'),
+        utm_content: attribution('utm_content'),
+        referrer: document.referrer || '',
+      });
       setSubmitted(true);
     } catch (err) {
       setError(formatError(err));

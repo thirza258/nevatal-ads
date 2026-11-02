@@ -363,7 +363,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNotify, showPubl
       )}
 
       <div className={`flex flex-col gap-6 transition-opacity ${loading ? 'opacity-60' : 'opacity-100'}`}>
-        {/* KPI row: observed delivery metrics only; commissions are not connected. */}
+        {/* KPI row: delivery metrics from events; confirmed revenue is reconciled separately. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
           <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">

@@ -42,17 +42,17 @@ The production origin for this deployment is **https://marketing.nevatal.id**.
   are revalidated on every click; the browser never submits an arbitrary URL.
 - **Analytics** for impressions, clicks, outbound redirects, affiliate clicks,
   CTR, time series, breakdowns by site, placement, campaign, or ad source, date
-  filtering, and authenticated CSV export. AdControl-observed metrics are kept
-  explicitly separate from externally confirmed conversions and commissions,
-  which are not connected in this release.
+  filtering, and authenticated CSV export. Confirmed conversions and commissions
+  come only from configured conversion sources and approved/reconciled events,
+  with provenance shown separately from AdControl-observed delivery metrics.
 - **Role-aware operations** including publisher-scoped management, pause
   campaign, pause all campaigns for a site, rotate site key, disable a site,
   audit log, retention, and backups.
 - **Fail-open delivery**: if AdControl is unavailable, the host page continues to
   work and placements stay empty (or reserve blank space when configured).
-- **Marketing learning platform** (Phase 3): a public catalog of free courses,
-  topics, and learning paths; learner registration, enrollment, My Learning,
-  progress, resume, and graded quizzes with protected answer keys; and a
+- **Marketing learning platform** (Phase 3): a public catalog of free and paid
+  courses, topics, and learning paths; learner registration, enrollment, My
+  Learning, progress, resume, and graded quizzes with protected answer keys; and a
   structured authoring/review/publication studio with version and freshness
   tracking. Public SEO pages, canonical URLs, Schema.org course metadata,
   `/sitemap.xml`, and `/robots.txt` are included.
@@ -60,6 +60,33 @@ The production origin for this deployment is **https://marketing.nevatal.id**.
   `/become-a-client` pages with validated, rate-limited application forms. Leads
   are stored in SQLite and reviewed in an administrator-only **Inquiries** view;
   nothing is provisioned automatically.
+- **Conversion tracking & attribution**: a separate browser conversion SDK and
+  1×1 pixel, per-source server-to-server webhooks signed with HMAC-SHA256, UTM
+  capture, first-touch and last-touch attribution, conversion/revenue funnel
+  reporting, and affiliate commission reconciliation with pending, approved,
+  rejected, and reconciled states.
+- **Marketing automation**: a visual ordered-node workflow builder with schedule,
+  performance, conversion, inquiry, and manual triggers; condition, delay, and
+  action nodes; scheduled campaign activation and performance-based auto-pause;
+  in-app notifications; and public-HTTPS webhook actions. A single worker evaluates
+  triggers and runs actions about every 30 seconds.
+- **CRM & lead management**: partner applications automatically become scored
+  leads with contact profiles, interaction history, a sales pipeline, follow-up
+  reminders, owner assignment, source/UTM attribution, and SMTP email sending
+  from the administrator back office.
+- **SEO & GEO intelligence**: site-scoped SEO projects with keyword tracking,
+  manual/imported SERP positions, rank history, competitor keyword gaps, backlink
+  monitoring, same-site technical audits, keyword/content optimization, and AI
+  search visibility checks across ChatGPT, Perplexity, Google AI Overviews,
+  Gemini, Claude, Copilot, and Grok.
+- **Campaign optimization & experimentation**: true weighted rotation within the
+  highest eligible priority tier, A/B experiments with visitor assignment,
+  creative/variant performance comparison, automatic weight reallocation and
+  winner selection, browser frequency capping, UTM/device/referrer audience
+  segments, and daily campaign budgets measured from observed impressions.
+- **Monetization & billing**: Free, Pro, Business, and Enterprise plans,
+  impression overage and hard caps, campaign quotas, manual invoices and payment
+  history, paid-course entitlements, and publisher revenue-share payouts.
 
 ## Stack
 
@@ -195,10 +222,13 @@ affiliate card without one. Publisher pages must not hide or remove it.
 
 AdControl observes impressions, signed click redirects, and outbound affiliate
 redirects. `affiliate_clicks` and `outbound_redirects` are distinct counters.
-`confirmed_conversions` and `confirmed_commission` are always `0` in this release
-with provenance `not_connected`. **Do not infer a sale or commission from a
-click.** Externally confirmed Shopee orders and commissions require a separately
-approved integration and are intentionally out of scope for Phase 2.
+Conversions are only recorded by a configured conversion source: the browser
+conversion SDK, a 1×1 pixel, or an HMAC-signed server-to-server webhook. Only
+approved or reconciled conversion events contribute to `confirmed_conversions`
+and `confirmed_commission` (provenance `conversion_source_reported` and
+`reconciled`). **A click is never inferred as a sale.** Shopee's API is not
+connected; the operator must reconcile incoming orders or commissions or configure
+a signed webhook.
 
 ### Phase 2 boundaries
 
@@ -265,8 +295,10 @@ private endpoint still enforces authentication and authorization server-side.
 
 ### Phase 3 boundaries
 
-- Courses are free at launch. There is no checkout, payment, entitlement,
-  certificate, cohort, or instructor-marketplace implementation.
+- Courses can be free or paid. A paid course creates a manual invoice and
+  requires an active entitlement, granted after an administrator records
+  settlement. There is no card checkout, tax engine, certificate, cohort, or
+  instructor-marketplace implementation.
 - The seed catalog covers digital marketing foundations, advertising/campaign
   optimization, SEO, GEO, SEM/PPC, affiliate/Shopee basics, content/social, and
   analytics/CRO. Topics and learning paths are seeded and read-only in this MVP.
@@ -337,9 +369,12 @@ docker build -t adcontrol-api:latest services/api
 ```
 
 The build runs `adcontrol-tests`, including URL safety, domain matching, schedule
-eligibility, password hashing, campaign selection, event deduplication,
-Phase 2 tenant isolation, site verification, affiliate URL preservation, and
-online-backup integrity checks.
+eligibility, password hashing, campaign selection, event deduplication, site
+verification, affiliate URL preservation, conversion attribution and
+reconciliation, workflow scheduling/performance triggers/auto-pause, CRM
+scoring and follow-ups, SEO/GEO persistence, weighted campaign candidates,
+audience segments, experiment metrics and automatic winner selection, billing
+and paid-course entitlements, and online-backup integrity checks.
 
 The API integration suite starts an isolated API container and never touches the
 stack database. It covers Phase 1 and Phase 2 API behavior end to end (publisher
@@ -349,7 +384,8 @@ no-open-redirect behavior, product-card delivery, disclosure, and provenance
 reporting), plus Phase 3 catalog visibility, SEO output, role boundaries,
 registration, enrollment, progress, quiz answer-key protection, authoring
 workflow, revisions, unpublish/republish, export, deletion, and aggregate
-learning analytics. The current suite result is **194 passed, 0 failed**:
+learning analytics. The suite is expanded for conversion, automation, CRM,
+SEO/GEO, experimentation, and monetization behavior:
 
 ```bash
 bash scripts/test-api.sh
@@ -425,9 +461,11 @@ checks, off-host copies, retention, and recovery testing.
 - SQLite is used in WAL mode. This is appropriate for a single API instance on a
   single host; do not run multiple API replicas against the same database file.
 - Rate limits are kept in process memory and reset when the API restarts.
-- The current selection rule is one deliverable campaign per placement. Priority
-  chooses the campaign; weight is a deterministic tie-breaker, not weighted
-  rotation.
+- Delivery selects one campaign per placement per refresh. Campaigns in the
+  highest eligible priority tier are chosen by weighted rotation using a
+  time-window seed. Experiments use a tab-scoped visitor identifier so variant
+  assignment is stable for that session; delivery responses are private while an
+  experiment is running.
 - Authentication uses a bearer token in browser localStorage. The shipped CSP
   mitigates script injection, but an httpOnly-cookie session would be a stronger
   design if the dashboard and API are split across origins.
@@ -443,16 +481,37 @@ checks, off-host copies, retention, and recovery testing.
 - Affiliate URLs are manually entered and structurally validated only. A valid
   URL does not prove that the destination, product, price, or commission is live;
   verify offers operationally. Click and outbound counts are AdControl-observed,
-  not confirmed sales.
+  not confirmed sales. Conversions are only as reliable as the configured pixel,
+  SDK, or signed webhook and the operator's reconciliation.
+- Frequency capping is enforced by the browser SDK in first-party localStorage;
+  a malicious or storage-restricted client can bypass it. Daily budgets are
+  estimated from observed impressions at the campaign CPM and reset at UTC
+  midnight. Audience rules support UTM values, inferred device category, and a
+  referrer substring; there is no IP geolocation targeting.
+- SEO keyword positions and backlink statuses are manual or imported. The
+  technical audit fetches only HTTPS pages on verified site domains and rejects
+  private/loopback address resolution. The product does not include a SERP
+  provider API, backlink provider API, or automated scraping of AI search
+  engines; GEO visibility checks are recorded manually or by import.
+- Automation runs on one in-process worker. Webhook actions call public HTTPS
+  endpoints without following redirects, reject private/loopback addresses, and
+  have no durable retry queue. In-app notifications require the dashboard; there
+  is no SMS/push transport.
+- CRM is administrator-only. Email sending requires the existing SMTP settings;
+  there is no inbound email sync, calendar sync, or third-party CRM integration.
+- Billing uses provider-agnostic manual settlement. Plan changes and paid courses
+  create invoices, but there is no card checkout, automatic renewal, tax
+  calculation, or payment-provider webhook.
 - The schema carries a read-only `analyst` role, but this release has no
   account-provisioning or tenant-scoping workflow for analysts. Only `admin` and
   publisher-owner accounts are provisioned through the product.
 - Domain verification uses DNS TXT or an administrator-only manual fallback. An
   administrator who uses the fallback attests ownership out of band.
-- Learning courses are free at launch. There is no payment, paid entitlement,
-  certificate, cohort, marketplace, or owned-video hosting. Learning route
-  metadata is applied client-side; the sitemap and canonical URLs are available
-  without JavaScript, but server-side rendering is not implemented.
+- Paid learning courses use a manual invoice and entitlement flow; there is no
+  card checkout, automatic renewal, certificate, cohort, marketplace, or
+  owned-video hosting. Learning route metadata is applied client-side; the
+  sitemap and canonical URLs are available without JavaScript, but server-side
+  rendering is not implemented.
 - Topics and learning paths are seeded and read-only through the MVP authoring
   UI/API. Staff account creation exists, but staff removal is not exposed through
   an endpoint; offboarding is an operator procedure.

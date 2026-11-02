@@ -12,6 +12,11 @@ import {
   Settings,
   Ticket,
   Users,
+  CreditCard,
+  Target,
+  Zap,
+  UserCheck,
+  Search,
 } from 'lucide-react';
 
 export type NavTab =
@@ -19,10 +24,16 @@ export type NavTab =
   | 'websites'
   | 'placements'
   | 'campaigns'
+  | 'conversions'
+  | 'automation'
+  | 'seo'
+  | 'optimization'
+  | 'billing'
   | 'email'
   | 'affiliate'
   | 'publishers'
   | 'inquiries'
+  | 'crm'
   | 'analytics'
   | 'audit'
   | 'sandbox'
@@ -41,6 +52,36 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'websites', label: 'Websites', icon: <Globe className="w-4 h-4" /> },
   { id: 'placements', label: 'Placements', icon: <LayoutGrid className="w-4 h-4" /> },
   { id: 'campaigns', label: 'Ads & Campaigns', icon: <Megaphone className="w-4 h-4" /> },
+  {
+    id: 'conversions',
+    label: 'Conversions',
+    icon: <Target className="w-4 h-4" />,
+    roles: ['admin', 'publisher'],
+  },
+  {
+    id: 'automation',
+    label: 'Automation',
+    icon: <Zap className="w-4 h-4" />,
+    roles: ['admin', 'publisher'],
+  },
+  {
+    id: 'seo',
+    label: 'SEO & GEO',
+    icon: <Search className="w-4 h-4" />,
+    roles: ['admin', 'publisher'],
+  },
+  {
+    id: 'optimization',
+    label: 'Optimization',
+    icon: <FlaskConical className="w-4 h-4" />,
+    roles: ['admin', 'publisher'],
+  },
+  {
+    id: 'billing',
+    label: 'Billing',
+    icon: <CreditCard className="w-4 h-4" />,
+    roles: ['admin', 'publisher'],
+  },
   {
     id: 'email',
     label: 'Email Marketing',
@@ -63,6 +104,12 @@ export const NAV_ITEMS: NavItem[] = [
     id: 'inquiries',
     label: 'Inquiries',
     icon: <Inbox className="w-4 h-4" />,
+    roles: ['admin'],
+  },
+  {
+    id: 'crm',
+    label: 'CRM & Leads',
+    icon: <UserCheck className="w-4 h-4" />,
     roles: ['admin'],
   },
   { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-4 h-4" /> },

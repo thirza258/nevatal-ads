@@ -37,6 +37,11 @@
     merchant_name?: string;
     price_text?: string;
     currency?: string;
+    frequency_cap_impressions?: number;
+    frequency_cap_window_hours?: number;
+    audience_segment_id?: string;
+    experiment_id?: string;
+    experiment_variant_id?: string;
   }
 
   interface SiteDeliveryConfig {
@@ -79,6 +84,8 @@
     ratio: number;
     timer: number | null;
     done: boolean;
+    frequencyCap: number;
+    frequencyWindowHours: number;
   }
 
   const SDK_VERSION = '1.3.0';
@@ -90,6 +97,8 @@
   const IMPRESSION_MS = 1_000;
   const MIN_REFRESH_MS = 15_000;
   const MAX_REFRESH_MS = 300_000;
+  const VISITOR_STORAGE_KEY = 'adcontrol_session_v1';
+  const FREQUENCY_STORAGE_PREFIX = 'adcontrol_freq_v1:';
 
   const win = window as unknown as Record<string, unknown> & Window;
 
@@ -168,6 +177,71 @@
       // Fall through to the non-cryptographic identifier below.
     }
     return 'imp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 14);
+  }
+
+  function sessionVisitorId(): string {
+    try {
+      const existing = window.sessionStorage.getItem(VISITOR_STORAGE_KEY);
+      if (existing && /^[A-Za-z0-9._:-]{8,128}$/.test(existing)) return existing;
+      const generated = generateEventId().replace(/^imp-/, 'acs-');
+      window.sessionStorage.setItem(VISITOR_STORAGE_KEY, generated);
+      return generated;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function deliveryContextParams(): string {
+    const params = new URLSearchParams();
+    const visitor = sessionVisitorId();
+    if (visitor) params.set('visitor_id', visitor);
+    try {
+      const current = new URLSearchParams(window.location.search);
+      for (const key of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content']) {
+        const value = (current.get(key) || '').trim();
+        if (value) params.set(key, value.slice(0, 160));
+      }
+    } catch (_) {
+      // Attribution parameters are optional.
+    }
+    const text = params.toString();
+    return text ? '?' + text : '';
+  }
+
+  function frequencyEntries(campaignId: string, windowHours: number): number[] {
+    try {
+      const raw = window.localStorage.getItem(FREQUENCY_STORAGE_PREFIX + campaignId);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      const cutoff = Date.now() - Math.max(1, windowHours) * 3_600_000;
+      return parsed
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+        .filter((value) => value > cutoff);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function frequencyCapReached(ad: PlacementConfig): boolean {
+    const cap = Number(ad.frequency_cap_impressions) || 0;
+    if (cap <= 0 || !ad.campaign_id) return false;
+    const windowHours = Number(ad.frequency_cap_window_hours) || 24;
+    return frequencyEntries(ad.campaign_id, windowHours).length >= cap;
+  }
+
+  function recordFrequency(campaignId: string, cap: number, windowHours: number) {
+    if (cap <= 0) return;
+    try {
+      const entries = frequencyEntries(campaignId, windowHours);
+      entries.push(Date.now());
+      window.localStorage.setItem(
+        FREQUENCY_STORAGE_PREFIX + campaignId,
+        JSON.stringify(entries.slice(-Math.max(cap, 1))),
+      );
+    } catch (_) {
+      // If storage is unavailable, frequency capping cannot be enforced.
+    }
   }
 
   function readScriptConfiguration(): ScriptConfiguration {
@@ -356,6 +430,7 @@
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       watch.done = true;
       completedImpressions.set(element, watch.campaignId);
+      recordFrequency(watch.campaignId, watch.frequencyCap, watch.frequencyWindowHours);
       sendImpression(watch.placementKey, watch.campaignId, watch.eventId);
       watchedElements.delete(element);
       try {
@@ -404,6 +479,8 @@
       ratio: 0,
       timer: null,
       done: false,
+      frequencyCap: Number(ad.frequency_cap_impressions) || 0,
+      frequencyWindowHours: Number(ad.frequency_cap_window_hours) || 24,
     };
     impressionWatches.set(element, watch);
     watchedElements.add(element);
@@ -808,6 +885,11 @@
         applyFallback(element, placementKey, ad);
         continue;
       }
+      if (frequencyCapReached(ad)) {
+        log('Frequency cap reached for campaign', ad.campaign_id);
+        applyFallback(element, placementKey, ad);
+        continue;
+      }
 
       const signature = signatureFor(ad);
       if (renderedElements.has(element) && renderedSignatures.get(element) === signature) {
@@ -894,7 +976,8 @@
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (configEtag) headers['If-None-Match'] = configEtag;
 
-    const endpoint = (apiBase || '') + '/delivery/v1/sites/' + encodeURIComponent(activeSiteKey) + '/config';
+    const endpoint = (apiBase || '') + '/delivery/v1/sites/' +
+      encodeURIComponent(activeSiteKey) + '/config' + deliveryContextParams();
 
     const task = (async (): Promise<SiteDeliveryConfig | null> => {
       try {

@@ -27,9 +27,11 @@ account roles and does not enroll existing users automatically.
   crawler-friendly robots rules.
 - Aggregate course and author analytics that do not expose named learners.
 
-Paid courses, payments, certificates, instructor marketplaces, cohorts, owned
-video hosting, and AI tutoring are **not** implemented. See
-[Boundaries](#boundaries-and-later-phases).
+Paid courses use a manual invoice and entitlement flow: a purchase creates an
+invoice, and access is granted after an administrator records settlement. Card
+checkout, automatic renewal, tax calculation, certificates, instructor
+marketplaces, cohorts, owned-video hosting, and AI tutoring are **not**
+implemented. See [Boundaries](#boundaries-and-later-phases).
 
 ## Routes
 
@@ -400,10 +402,11 @@ through nginx.
 
 ## Boundaries and later phases
 
-- **Free at launch.** There is no checkout, entitlement, price, coupon,
-  certificate, cohort, or paid-enrollment table. The course/enrollment model is
-  separated from billing so a future paid offering can add explicit entitlement
-  checks as an additive change. Do not describe any current course as paid.
+- **Manual paid-course settlement.** Courses can be free or paid. A paid course
+  creates a manual invoice; enrollment requires an active entitlement, which is
+  granted when an administrator records invoice payment. There is no card
+  checkout, coupon engine, automatic renewal, tax calculation, certificate, or
+  cohort. The public catalog shows the price and purchase state.
 - **No certificates or credentials.** Completion is an AdControl record, not an
   accredited certificate.
 - **No learner social features.** There are no discussions, profiles, cohorts,

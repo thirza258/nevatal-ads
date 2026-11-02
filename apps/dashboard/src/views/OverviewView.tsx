@@ -197,7 +197,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             <div className="text-2xl font-bold text-slate-900 mt-1">
               {(summary.affiliate_clicks || 0).toLocaleString()}
             </div>
-            <div className="text-xs text-slate-400 mt-0.5">Observed only; commissions not connected</div>
+            <div className="text-xs text-slate-400 mt-0.5">Observed redirects; commissions are reconciled separately</div>
           </div>
           <div className="w-12 h-12 bg-teal-50 rounded-xl flex items-center justify-center text-teal-600">
             <Ticket className="w-6 h-6" />

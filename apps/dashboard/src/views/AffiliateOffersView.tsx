@@ -710,9 +710,9 @@ export const AffiliateOffersView: React.FC<AffiliateOffersViewProps> = ({ onNoti
 
       <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 leading-relaxed">
         <strong className="text-slate-700">Reporting boundary:</strong> clicks and outbound redirects are
-        AdControl-observed events. External conversions and commissions are not connected in this release and are
-        never inferred from redirects. Affiliate URLs are stored and redirected exactly as entered; AdControl does
-        not add or reorder query parameters.
+        AdControl-observed events. Purchases and commissions appear only when a configured conversion source
+        reports them and they are approved or reconciled; they are never inferred from redirects. Affiliate URLs
+        are stored and redirected exactly as entered; AdControl does not add or reorder query parameters.
       </div>
 
       {/* Create / Edit offer */}

@@ -798,14 +798,14 @@ timestamp. `ctr` is a percentage (0–100), computed as `clicks / impressions *
   "outbound_redirects": 12,
   "affiliate_clicks": 12,
   "ctr": 4.54,
-  "confirmed_conversions": 0,
-  "confirmed_commission": 0,
+  "confirmed_conversions": 2,
+  "confirmed_commission": 1250,
   "provenance": {
     "impressions": "adcontrol_observed",
     "clicks": "adcontrol_observed",
     "outbound_redirects": "adcontrol_observed",
-    "conversions": "not_connected",
-    "commission": "not_connected"
+    "conversions": "conversion_source_reported",
+    "commission": "reconciled"
   }
 }
 ```
@@ -813,8 +813,9 @@ timestamp. `ctr` is a percentage (0–100), computed as `clicks / impressions *
 `impressions`, `clicks`, `outbound_redirects`, and `affiliate_clicks` are
 AdControl-observed counts. `clicks` counts signed click redirects; an affiliate
 click also produces one `outbound_redirect`. `confirmed_conversions` and
-`confirmed_commission` are always zero because no external conversion source is
-connected. They must never be inferred from redirect events.
+`confirmed_commission` include only approved or reconciled events reported by a
+configured conversion source (browser SDK, pixel, or HMAC-signed webhook). They
+must never be inferred from redirect events.
 
 ### `GET /api/v1/analytics/timeseries?days=7`
 
@@ -1362,6 +1363,86 @@ regard to case. Control characters other than tab/CR/LF are rejected. Quiz
 validation requires 2–10 options per question and exactly one correct option.
 Video frames are restricted by CSP to `www.youtube-nocookie.com` and
 `player.vimeo.com`. Resource URLs are validated structurally and never fetched.
+
+## Attribution, automation, CRM, SEO, and optimization APIs
+
+All management endpoints below require a back-office bearer session. Publisher
+sessions are pinned to their own tenant; administrator-only endpoints are marked.
+
+### Conversion tracking
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/conversion/v1/events` | Browser SDK/pixel conversion ingestion using a public source key |
+| `GET` | `/conversion/v1/pixel.gif` | 1×1 conversion pixel (query-string fields) |
+| `POST` | `/conversion/v1/webhooks/{public_key}` | Server-to-server webhook; requires `X-AdControl-Signature: sha256=<hex>` over the raw body |
+| `GET`/`POST` | `/api/v1/conversion/sources` | List/create sources (publisher/editor roles) |
+| `PATCH` | `/api/v1/conversion/sources/{id}` | Rename, disable, or change defaults |
+| `GET` | `/api/v1/conversions` | Filtered conversion rows |
+| `GET` | `/api/v1/conversions/summary` | Funnel, revenue, and commission summary |
+| `GET` | `/api/v1/conversions/reconciliation` | Commission totals grouped by offer/campaign/status |
+| `PATCH` | `/api/v1/conversions/{id}` | Set `pending`, `approved`, `rejected`, or `reconciled` |
+
+A source creation response contains the public key, a one-time HMAC signing
+secret, the pixel URL, and the webhook path. Repeated events with the same
+`external_id` or `order_id` are idempotent. Confirmed analytics include only
+approved/reconciled events.
+
+### Automation
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET`/`POST` | `/api/v1/automation/workflows` | List/create ordered trigger, condition, delay, and action workflows |
+| `GET`/`PATCH`/`DELETE` | `/api/v1/automation/workflows/{id}` | Read, edit, or delete a workflow |
+| `POST` | `/api/v1/automation/workflows/{id}/status` | `draft`, `active`, or `paused` |
+| `POST` | `/api/v1/automation/workflows/{id}/run` | Queue a manual run |
+| `GET` | `/api/v1/automation/runs` | Recent runs and execution logs |
+| `GET` | `/api/v1/automation/notifications` | In-app notifications and unread count |
+| `POST` | `/api/v1/automation/tick` | Administrator-only immediate worker tick |
+
+Actions are `pause_campaign`, `activate_campaign`, `send_notification`, and
+`webhook`. Webhooks must be public HTTPS endpoints; private/loopback addresses
+and redirects are rejected.
+
+### CRM
+
+Administrator-only routes: `/api/v1/crm/leads` (list/create), `/leads/{id}`
+(read/update/delete), `/leads/{id}/activities`, `/leads/{id}/email`,
+`/leads/{id}/tasks`, `/crm/tasks`, `/crm/tasks/{id}`, `/crm/summary`, and
+`/crm/owners`. Public partner applications become a lead exactly once; SMTP
+email requires an enabled transport in Settings.
+
+### SEO and GEO
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET`/`POST` | `/api/v1/seo/projects` | Site-scoped SEO projects |
+| `GET`/`POST` | `/api/v1/seo/projects/{id}/keywords` | Keyword inventory |
+| `POST` | `/api/v1/seo/projects/{id}/research` | Local seed-based keyword suggestions |
+| `GET`/`POST` | `/api/v1/seo/keywords/{id}/rankings` | Rank history / record a position (0 = not ranking) |
+| `GET`/`POST` | `/api/v1/seo/projects/{id}/competitors` | Competitors and their keywords |
+| `GET`/`POST` | `/api/v1/seo/projects/{id}/backlinks` | Backlink monitoring records |
+| `POST` | `/api/v1/seo/projects/{id}/audit` | Fetch a same-site HTTPS page and run a technical audit |
+| `POST` | `/api/v1/seo/projects/{id}/optimize` | Keyword/content optimization analysis |
+| `GET`/`POST` | `/api/v1/seo/projects/{id}/geo` | AI-search queries and recorded visibility checks |
+
+SERP, competitor, backlink, and GEO data is manually recorded or imported; no
+third-party provider API is called.
+
+### Experiments and audience segments
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET`/`POST` | `/api/v1/audience-segments` | UTM/device/referrer rules |
+| `PATCH`/`DELETE` | `/api/v1/audience-segments/{id}` | Update or delete a segment |
+| `GET`/`POST` | `/api/v1/experiments` | List/create A/B experiments with 2–10 variants |
+| `GET`/`PATCH`/`DELETE` | `/api/v1/experiments/{id}` | Read/edit/delete an experiment |
+| `POST` | `/api/v1/experiments/{id}/status` | `running`, `paused`, `completed`, or `draft` |
+| `POST` | `/api/v1/experiments/{id}/optimize` | Reallocate variant weights and evaluate a winner now |
+
+Delivery selects a running experiment's variant by weights, using the SDK's
+session-scoped visitor id. When the sample and lift thresholds are met, the
+optimizer marks a winner and pauses losing campaigns.
 
 ## Health
 

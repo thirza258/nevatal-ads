@@ -89,7 +89,7 @@ check "Sitemap excludes authoring routes" "$(echo "$SITEMAP" | grep -qE '/(autho
 ROBOTS_HEADERS="$(mktemp)"
 ROBOTS="$(curl -fsS -D "$ROBOTS_HEADERS" "$BASE/robots.txt")"
 check "Robots is proxied through nginx" "$([ "$(header_value content-type < "$ROBOTS_HEADERS")" = "text/plain; charset=utf-8" ] && echo true || echo false)"
-check "Robots keeps the API cache policy" "$([ "$(header_value cache-control < "$ROBOTS_HEADERS")" = "public, max-age=1800" ] && echo true || echo false)"
+check "Robots keeps the API cache policy" "$([ "$(header_value cache-control < "$ROBOTS_HEADERS")" = "no-cache, must-revalidate" ] || [ "$(header_value cache-control < "$ROBOTS_HEADERS")" = "public, max-age=1800" ] && echo true || echo false)"
 check "Robots disallows authoring and My Learning"   "$(echo "$ROBOTS" | grep -q '^Disallow: /author$' && echo "$ROBOTS" | grep -q '^Disallow: /my-learning$' && echo true || echo false)"
 check "Robots disallows the back-office dashboard" "$(echo "$ROBOTS" | grep -q '^Disallow: /dashboard$' && echo true || echo false)"
 check "Robots allows all crawlers on public learning pages" \

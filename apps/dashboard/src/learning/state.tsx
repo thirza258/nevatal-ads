@@ -151,6 +151,18 @@ export function formatDuration(minutes: number): string {
   return remainder ? `${hours} hr ${remainder} min` : `${hours} hr`;
 }
 
+export function formatMoney(cents: number | undefined, currency = 'USD'): string {
+  const amount = (cents || 0) / 100;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currency || 'USD',
+    }).format(amount);
+  } catch (_) {
+    return `${(currency || 'USD').toUpperCase()} ${amount.toFixed(2)}`;
+  }
+}
+
 export function levelLabel(level: string): string {
   if (level === 'advanced') return 'Advanced';
   if (level === 'intermediate') return 'Intermediate';

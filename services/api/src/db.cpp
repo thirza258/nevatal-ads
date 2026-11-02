@@ -61,6 +61,9 @@ bool Database::init(const std::string& db_path) {
     if (!seed_learning_catalog()) {
         return false;
     }
+    if (!seed_billing_plans()) {
+        return false;
+    }
     return true;
 }
 
@@ -404,6 +407,7 @@ bool Database::run_migrations() {
         add_column_if_missing(db_, "campaigns", "source_type", "TEXT NOT NULL DEFAULT 'house'") &&
         add_column_if_missing(db_, "campaigns", "affiliate_offer_id", "TEXT") &&
         add_column_if_missing(db_, "campaigns", "disclosure_override", "TEXT") &&
+        add_column_if_missing(db_, "campaigns", "cpm_cents", "INTEGER NOT NULL DEFAULT 0") &&
         add_column_if_missing(db_, "ad_events", "source_type", "TEXT") &&
         add_column_if_missing(db_, "ad_events", "affiliate_offer_id", "TEXT");
     if (!columns_ok) return false;
@@ -642,6 +646,629 @@ bool Database::run_migrations() {
         sqlite3_free(err_msg);
         return false;
     }
+
+    // Additive monetization columns and tables. Free courses remain free; only
+    // courses explicitly marked paid create a manual invoice before enrollment.
+    if (!add_column_if_missing(db_, "learning_courses", "price_cents", "INTEGER NOT NULL DEFAULT 0") ||
+        !add_column_if_missing(db_, "learning_courses", "currency", "TEXT NOT NULL DEFAULT 'USD'") ||
+        !add_column_if_missing(db_, "learning_courses", "access_type", "TEXT NOT NULL DEFAULT 'free'")) {
+        return false;
+    }
+
+    const char* billing_schema = R"(
+        CREATE TABLE IF NOT EXISTS billing_plans (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            price_cents INTEGER NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            billing_interval TEXT NOT NULL DEFAULT 'month',
+            included_campaigns INTEGER NOT NULL DEFAULT -1,
+            included_impressions INTEGER NOT NULL DEFAULT -1,
+            overage_per_1000_impressions_cents INTEGER NOT NULL DEFAULT 0,
+            revenue_share_percent INTEGER NOT NULL DEFAULT 0,
+            features TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'active',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS publisher_subscriptions (
+            id TEXT PRIMARY KEY,
+            publisher_id TEXT UNIQUE NOT NULL,
+            plan_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            current_period_start TEXT NOT NULL,
+            current_period_end TEXT NOT NULL,
+            cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(publisher_id) REFERENCES publishers(id) ON DELETE CASCADE,
+            FOREIGN KEY(plan_id) REFERENCES billing_plans(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_plan ON publisher_subscriptions(plan_id);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON publisher_subscriptions(status);
+
+        CREATE TABLE IF NOT EXISTS billing_invoices (
+            id TEXT PRIMARY KEY,
+            publisher_id TEXT,
+            user_id TEXT,
+            context TEXT NOT NULL DEFAULT 'subscription',
+            period_start TEXT NOT NULL DEFAULT '',
+            period_end TEXT NOT NULL DEFAULT '',
+            currency TEXT NOT NULL DEFAULT 'USD',
+            subtotal_cents INTEGER NOT NULL DEFAULT 0,
+            tax_cents INTEGER NOT NULL DEFAULT 0,
+            total_cents INTEGER NOT NULL DEFAULT 0,
+            amount_paid_cents INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'open',
+            due_at TEXT,
+            issued_at TEXT,
+            paid_at TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(publisher_id) REFERENCES publishers(id),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_invoices_publisher ON billing_invoices(publisher_id);
+        CREATE INDEX IF NOT EXISTS idx_invoices_user ON billing_invoices(user_id);
+        CREATE INDEX IF NOT EXISTS idx_invoices_status ON billing_invoices(status);
+        CREATE INDEX IF NOT EXISTS idx_invoices_context ON billing_invoices(context);
+        CREATE INDEX IF NOT EXISTS idx_invoices_created ON billing_invoices(created_at);
+
+        CREATE TABLE IF NOT EXISTS billing_invoice_items (
+            id TEXT PRIMARY KEY,
+            invoice_id TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'adjustment',
+            description TEXT NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 1,
+            unit_amount_cents INTEGER NOT NULL DEFAULT 0,
+            amount_cents INTEGER NOT NULL DEFAULT 0,
+            course_id TEXT,
+            metadata TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(invoice_id) REFERENCES billing_invoices(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON billing_invoice_items(invoice_id);
+        CREATE INDEX IF NOT EXISTS idx_invoice_items_course ON billing_invoice_items(course_id);
+
+        CREATE TABLE IF NOT EXISTS billing_payments (
+            id TEXT PRIMARY KEY,
+            invoice_id TEXT NOT NULL,
+            publisher_id TEXT,
+            user_id TEXT,
+            amount_cents INTEGER NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            method TEXT NOT NULL DEFAULT 'manual',
+            reference TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            received_at TEXT NOT NULL,
+            recorded_by TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(invoice_id) REFERENCES billing_invoices(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_payments_invoice ON billing_payments(invoice_id);
+        CREATE INDEX IF NOT EXISTS idx_payments_publisher ON billing_payments(publisher_id);
+        CREATE INDEX IF NOT EXISTS idx_payments_user ON billing_payments(user_id);
+
+        CREATE TABLE IF NOT EXISTS learning_course_entitlements (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            course_id TEXT NOT NULL,
+            invoice_id TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            granted_at TEXT NOT NULL,
+            revoked_at TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(user_id, course_id),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(course_id) REFERENCES learning_courses(id) ON DELETE CASCADE,
+            FOREIGN KEY(invoice_id) REFERENCES billing_invoices(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_entitlements_user ON learning_course_entitlements(user_id);
+        CREATE INDEX IF NOT EXISTS idx_entitlements_course ON learning_course_entitlements(course_id);
+        CREATE INDEX IF NOT EXISTS idx_entitlements_status ON learning_course_entitlements(status);
+
+        CREATE TABLE IF NOT EXISTS publisher_payouts (
+            id TEXT PRIMARY KEY,
+            publisher_id TEXT NOT NULL,
+            period_start TEXT NOT NULL DEFAULT '',
+            period_end TEXT NOT NULL DEFAULT '',
+            amount_cents INTEGER NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            method TEXT NOT NULL DEFAULT 'manual',
+            reference TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'paid',
+            paid_at TEXT,
+            recorded_by TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(publisher_id) REFERENCES publishers(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_payouts_publisher ON publisher_payouts(publisher_id);
+        CREATE INDEX IF NOT EXISTS idx_payouts_status ON publisher_payouts(status);
+        CREATE INDEX IF NOT EXISTS idx_payouts_created ON publisher_payouts(created_at);
+    )";
+    err_msg = nullptr;
+    rc = sqlite3_exec(db_, billing_schema, nullptr, nullptr, &err_msg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "SQL error in monetization schema: " << (err_msg ? err_msg : "unknown") << std::endl;
+        sqlite3_free(err_msg);
+        return false;
+    }
+
+    const char* conversion_schema = R"(
+        CREATE TABLE IF NOT EXISTS conversion_sources (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            publisher_id TEXT,
+            name TEXT NOT NULL,
+            public_key TEXT UNIQUE NOT NULL,
+            signing_secret_enc TEXT NOT NULL,
+            default_campaign_id TEXT,
+            default_offer_id TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            last_event_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE,
+            FOREIGN KEY(publisher_id) REFERENCES publishers(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_conversion_sources_site ON conversion_sources(site_id);
+        CREATE INDEX IF NOT EXISTS idx_conversion_sources_publisher ON conversion_sources(publisher_id);
+        CREATE INDEX IF NOT EXISTS idx_conversion_sources_status ON conversion_sources(status);
+
+        CREATE TABLE IF NOT EXISTS conversion_events (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            site_id TEXT NOT NULL,
+            publisher_id TEXT,
+            campaign_id TEXT,
+            offer_id TEXT,
+            external_id TEXT NOT NULL,
+            event_name TEXT NOT NULL DEFAULT 'purchase',
+            order_id TEXT NOT NULL DEFAULT '',
+            value_cents INTEGER NOT NULL DEFAULT 0,
+            commission_cents INTEGER NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            status TEXT NOT NULL DEFAULT 'pending',
+            ingestion TEXT NOT NULL DEFAULT 'sdk',
+            visitor_id TEXT NOT NULL DEFAULT '',
+            page_url TEXT NOT NULL DEFAULT '',
+            referrer TEXT NOT NULL DEFAULT '',
+            utm_source TEXT NOT NULL DEFAULT '',
+            utm_medium TEXT NOT NULL DEFAULT '',
+            utm_campaign TEXT NOT NULL DEFAULT '',
+            utm_term TEXT NOT NULL DEFAULT '',
+            utm_content TEXT NOT NULL DEFAULT '',
+            first_touch TEXT NOT NULL DEFAULT '{}',
+            last_touch TEXT NOT NULL DEFAULT '{}',
+            clicked_campaign_id TEXT NOT NULL DEFAULT '',
+            occurred_at TEXT NOT NULL,
+            reconciled_at TEXT,
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(source_id, external_id),
+            FOREIGN KEY(source_id) REFERENCES conversion_sources(id) ON DELETE CASCADE,
+            FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_conversion_events_site ON conversion_events(site_id);
+        CREATE INDEX IF NOT EXISTS idx_conversion_events_publisher ON conversion_events(publisher_id);
+        CREATE INDEX IF NOT EXISTS idx_conversion_events_campaign ON conversion_events(campaign_id);
+        CREATE INDEX IF NOT EXISTS idx_conversion_events_offer ON conversion_events(offer_id);
+        CREATE INDEX IF NOT EXISTS idx_conversion_events_status ON conversion_events(status);
+        CREATE INDEX IF NOT EXISTS idx_conversion_events_occurred ON conversion_events(occurred_at);
+    )";
+    err_msg = nullptr;
+    rc = sqlite3_exec(db_, conversion_schema, nullptr, nullptr, &err_msg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "SQL error in conversion schema: " << (err_msg ? err_msg : "unknown") << std::endl;
+        sqlite3_free(err_msg);
+        return false;
+    }
+
+    const char* automation_schema = R"(
+        CREATE TABLE IF NOT EXISTS automation_workflows (
+            id TEXT PRIMARY KEY,
+            publisher_id TEXT,
+            site_id TEXT,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'draft',
+            trigger_type TEXT NOT NULL DEFAULT 'manual',
+            trigger_config TEXT NOT NULL DEFAULT '{}',
+            last_triggered_at TEXT,
+            next_run_at TEXT,
+            created_by TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(publisher_id) REFERENCES publishers(id) ON DELETE CASCADE,
+            FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_automation_workflows_publisher ON automation_workflows(publisher_id);
+        CREATE INDEX IF NOT EXISTS idx_automation_workflows_site ON automation_workflows(site_id);
+        CREATE INDEX IF NOT EXISTS idx_automation_workflows_status ON automation_workflows(status);
+        CREATE INDEX IF NOT EXISTS idx_automation_workflows_next_run ON automation_workflows(next_run_at);
+
+        CREATE TABLE IF NOT EXISTS automation_steps (
+            id TEXT PRIMARY KEY,
+            workflow_id TEXT NOT NULL,
+            type TEXT NOT NULL,
+            config TEXT NOT NULL DEFAULT '{}',
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(workflow_id) REFERENCES automation_workflows(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_automation_steps_workflow ON automation_steps(workflow_id, position);
+
+        CREATE TABLE IF NOT EXISTS automation_runs (
+            id TEXT PRIMARY KEY,
+            workflow_id TEXT NOT NULL,
+            trigger_key TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued',
+            trigger_payload TEXT NOT NULL DEFAULT '{}',
+            current_step INTEGER NOT NULL DEFAULT 0,
+            resume_at TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            error TEXT NOT NULL DEFAULT '',
+            log TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(workflow_id, trigger_key),
+            FOREIGN KEY(workflow_id) REFERENCES automation_workflows(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_automation_runs_workflow ON automation_runs(workflow_id);
+        CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs(status, resume_at);
+        CREATE INDEX IF NOT EXISTS idx_automation_runs_created ON automation_runs(created_at);
+
+        CREATE TABLE IF NOT EXISTS notifications (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            publisher_id TEXT,
+            kind TEXT NOT NULL DEFAULT 'info',
+            title TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            link TEXT NOT NULL DEFAULT '',
+            read_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(publisher_id) REFERENCES publishers(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_publisher ON notifications(publisher_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at);
+    )";
+    err_msg = nullptr;
+    rc = sqlite3_exec(db_, automation_schema, nullptr, nullptr, &err_msg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "SQL error in automation schema: " << (err_msg ? err_msg : "unknown") << std::endl;
+        sqlite3_free(err_msg);
+        return false;
+    }
+
+    const char* crm_schema = R"(
+        CREATE TABLE IF NOT EXISTS crm_leads (
+            id TEXT PRIMARY KEY,
+            inquiry_id TEXT UNIQUE,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            company TEXT NOT NULL DEFAULT '',
+            website TEXT NOT NULL DEFAULT '',
+            phone TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT 'manual',
+            source_detail TEXT NOT NULL DEFAULT '',
+            stage TEXT NOT NULL DEFAULT 'new',
+            score INTEGER NOT NULL DEFAULT 0,
+            owner_user_id TEXT,
+            value_cents INTEGER NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            tags TEXT NOT NULL DEFAULT '[]',
+            notes TEXT NOT NULL DEFAULT '',
+            utm_source TEXT NOT NULL DEFAULT '',
+            utm_medium TEXT NOT NULL DEFAULT '',
+            utm_campaign TEXT NOT NULL DEFAULT '',
+            utm_term TEXT NOT NULL DEFAULT '',
+            utm_content TEXT NOT NULL DEFAULT '',
+            referrer TEXT NOT NULL DEFAULT '',
+            last_contact_at TEXT,
+            next_follow_up_at TEXT,
+            converted_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(inquiry_id) REFERENCES partner_inquiries(id) ON DELETE SET NULL,
+            FOREIGN KEY(owner_user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_crm_leads_stage ON crm_leads(stage);
+        CREATE INDEX IF NOT EXISTS idx_crm_leads_email ON crm_leads(email);
+        CREATE INDEX IF NOT EXISTS idx_crm_leads_source ON crm_leads(source);
+        CREATE INDEX IF NOT EXISTS idx_crm_leads_follow_up ON crm_leads(next_follow_up_at);
+
+        CREATE TABLE IF NOT EXISTS crm_activities (
+            id TEXT PRIMARY KEY,
+            lead_id TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'note',
+            subject TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL DEFAULT '',
+            occurred_at TEXT NOT NULL,
+            created_by TEXT NOT NULL DEFAULT '',
+            metadata TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_crm_activities_lead ON crm_activities(lead_id, occurred_at);
+
+        CREATE TABLE IF NOT EXISTS crm_tasks (
+            id TEXT PRIMARY KEY,
+            lead_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            due_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            assigned_to TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            completed_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_crm_tasks_lead ON crm_tasks(lead_id);
+        CREATE INDEX IF NOT EXISTS idx_crm_tasks_due ON crm_tasks(status, due_at);
+    )";
+    err_msg = nullptr;
+    rc = sqlite3_exec(db_, crm_schema, nullptr, nullptr, &err_msg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "SQL error in CRM schema: " << (err_msg ? err_msg : "unknown") << std::endl;
+        sqlite3_free(err_msg);
+        return false;
+    }
+
+    const char* seo_schema = R"(
+        CREATE TABLE IF NOT EXISTS seo_projects (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            publisher_id TEXT,
+            name TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            country TEXT NOT NULL DEFAULT 'US',
+            language TEXT NOT NULL DEFAULT 'en',
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE,
+            FOREIGN KEY(publisher_id) REFERENCES publishers(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_seo_projects_site ON seo_projects(site_id);
+        CREATE INDEX IF NOT EXISTS idx_seo_projects_publisher ON seo_projects(publisher_id);
+
+        CREATE TABLE IF NOT EXISTS seo_keywords (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            keyword TEXT NOT NULL,
+            target_url TEXT NOT NULL DEFAULT '',
+            country TEXT NOT NULL DEFAULT 'US',
+            device TEXT NOT NULL DEFAULT 'desktop',
+            intent TEXT NOT NULL DEFAULT 'informational',
+            priority INTEGER NOT NULL DEFAULT 2,
+            search_volume INTEGER NOT NULL DEFAULT 0,
+            difficulty INTEGER NOT NULL DEFAULT 0,
+            current_position INTEGER NOT NULL DEFAULT 0,
+            previous_position INTEGER NOT NULL DEFAULT 0,
+            last_checked_at TEXT,
+            source TEXT NOT NULL DEFAULT 'manual',
+            tags TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES seo_projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_seo_keywords_project ON seo_keywords(project_id);
+        CREATE INDEX IF NOT EXISTS idx_seo_keywords_keyword ON seo_keywords(keyword);
+
+        CREATE TABLE IF NOT EXISTS seo_rankings (
+            id TEXT PRIMARY KEY,
+            keyword_id TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            url TEXT NOT NULL DEFAULT '',
+            checked_at TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'manual',
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(keyword_id) REFERENCES seo_keywords(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_seo_rankings_keyword ON seo_rankings(keyword_id, checked_at);
+
+        CREATE TABLE IF NOT EXISTS seo_competitors (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES seo_projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_seo_competitors_project ON seo_competitors(project_id);
+
+        CREATE TABLE IF NOT EXISTS seo_competitor_keywords (
+            id TEXT PRIMARY KEY,
+            competitor_id TEXT NOT NULL,
+            keyword TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            search_volume INTEGER NOT NULL DEFAULT 0,
+            url TEXT NOT NULL DEFAULT '',
+            checked_at TEXT,
+            source TEXT NOT NULL DEFAULT 'manual',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(competitor_id) REFERENCES seo_competitors(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_seo_competitor_keywords ON seo_competitor_keywords(competitor_id);
+
+        CREATE TABLE IF NOT EXISTS seo_backlinks (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            target_url TEXT NOT NULL DEFAULT '',
+            anchor_text TEXT NOT NULL DEFAULT '',
+            domain TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'active',
+            nofollow INTEGER NOT NULL DEFAULT 0,
+            first_seen_at TEXT NOT NULL,
+            last_checked_at TEXT,
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES seo_projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_seo_backlinks_project ON seo_backlinks(project_id);
+
+        CREATE TABLE IF NOT EXISTS seo_audits (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            target_url TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'completed',
+            score INTEGER NOT NULL DEFAULT 0,
+            checked_at TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES seo_projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_seo_audits_project ON seo_audits(project_id, checked_at);
+
+        CREATE TABLE IF NOT EXISTS seo_audit_issues (
+            id TEXT PRIMARY KEY,
+            audit_id TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'medium',
+            category TEXT NOT NULL DEFAULT '',
+            code TEXT NOT NULL DEFAULT '',
+            message TEXT NOT NULL DEFAULT '',
+            recommendation TEXT NOT NULL DEFAULT '',
+            page_url TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY(audit_id) REFERENCES seo_audits(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_seo_audit_issues ON seo_audit_issues(audit_id);
+
+        CREATE TABLE IF NOT EXISTS geo_queries (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            query_text TEXT NOT NULL,
+            engines TEXT NOT NULL DEFAULT '[]',
+            country TEXT NOT NULL DEFAULT 'US',
+            status TEXT NOT NULL DEFAULT 'active',
+            last_checked_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES seo_projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_geo_queries_project ON geo_queries(project_id);
+
+        CREATE TABLE IF NOT EXISTS geo_mentions (
+            id TEXT PRIMARY KEY,
+            query_id TEXT NOT NULL,
+            engine TEXT NOT NULL,
+            mentioned INTEGER NOT NULL DEFAULT 0,
+            position INTEGER NOT NULL DEFAULT 0,
+            sentiment TEXT NOT NULL DEFAULT '',
+            snippet TEXT NOT NULL DEFAULT '',
+            checked_at TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'manual',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(query_id) REFERENCES geo_queries(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_geo_mentions_query ON geo_mentions(query_id, checked_at);
+    )";
+    err_msg = nullptr;
+    rc = sqlite3_exec(db_, seo_schema, nullptr, nullptr, &err_msg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "SQL error in SEO schema: " << (err_msg ? err_msg : "unknown") << std::endl;
+        sqlite3_free(err_msg);
+        return false;
+    }
+
+    const char* optimization_schema = R"(
+        CREATE TABLE IF NOT EXISTS audience_segments (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            publisher_id TEXT,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            rules TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE,
+            FOREIGN KEY(publisher_id) REFERENCES publishers(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_audience_segments_site ON audience_segments(site_id);
+
+        CREATE TABLE IF NOT EXISTS experiments (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            placement_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'draft',
+            objective TEXT NOT NULL DEFAULT 'ctr',
+            min_impressions INTEGER NOT NULL DEFAULT 100,
+            min_lift_percent INTEGER NOT NULL DEFAULT 10,
+            auto_winner INTEGER NOT NULL DEFAULT 1,
+            winner_campaign_id TEXT,
+            started_at TEXT,
+            ended_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE,
+            FOREIGN KEY(placement_id) REFERENCES placements(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_experiments_placement ON experiments(placement_id);
+        CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status);
+
+        CREATE TABLE IF NOT EXISTS experiment_variants (
+            id TEXT PRIMARY KEY,
+            experiment_id TEXT NOT NULL,
+            campaign_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            weight INTEGER NOT NULL DEFAULT 100,
+            is_control INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            UNIQUE(experiment_id, campaign_id),
+            FOREIGN KEY(experiment_id) REFERENCES experiments(id) ON DELETE CASCADE,
+            FOREIGN KEY(campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_experiment_variants ON experiment_variants(experiment_id);
+    )";
+    err_msg = nullptr;
+    rc = sqlite3_exec(db_, optimization_schema, nullptr, nullptr, &err_msg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "SQL error in optimization schema: " << (err_msg ? err_msg : "unknown") << std::endl;
+        sqlite3_free(err_msg);
+        return false;
+    }
+
+    if (!add_column_if_missing(db_, "campaigns", "daily_budget_cents", "INTEGER NOT NULL DEFAULT 0") ||
+        !add_column_if_missing(db_, "campaigns", "frequency_cap_impressions", "INTEGER NOT NULL DEFAULT 0") ||
+        !add_column_if_missing(db_, "campaigns", "frequency_cap_window_hours", "INTEGER NOT NULL DEFAULT 24") ||
+        !add_column_if_missing(db_, "campaigns", "audience_segment_id", "TEXT NOT NULL DEFAULT ''")) {
+        return false;
+    }
+
+    if (!add_column_if_missing(db_, "partner_inquiries", "source", "TEXT NOT NULL DEFAULT ''") ||
+        !add_column_if_missing(db_, "partner_inquiries", "utm_source", "TEXT NOT NULL DEFAULT ''") ||
+        !add_column_if_missing(db_, "partner_inquiries", "utm_medium", "TEXT NOT NULL DEFAULT ''") ||
+        !add_column_if_missing(db_, "partner_inquiries", "utm_campaign", "TEXT NOT NULL DEFAULT ''") ||
+        !add_column_if_missing(db_, "partner_inquiries", "utm_term", "TEXT NOT NULL DEFAULT ''") ||
+        !add_column_if_missing(db_, "partner_inquiries", "utm_content", "TEXT NOT NULL DEFAULT ''") ||
+        !add_column_if_missing(db_, "partner_inquiries", "referrer", "TEXT NOT NULL DEFAULT ''")) {
+        return false;
+    }
+
+    // Backfill course access metadata for databases created before paid courses.
+    sqlite3_exec(db_, "UPDATE learning_courses SET access_type = 'free' WHERE access_type IS NULL OR access_type = '';",
+                 nullptr, nullptr, nullptr);
+    sqlite3_exec(db_, "UPDATE learning_courses SET currency = 'USD' WHERE currency IS NULL OR currency = '';",
+                 nullptr, nullptr, nullptr);
 
     // Legacy campaigns were managed exclusively by the platform owner. They are
     // classified as house inventory rather than guessing an external advertiser;
@@ -1017,13 +1644,21 @@ PartnerInquiry partner_inquiry_from_row(sqlite3_stmt* stmt) {
     i.website = text(5);
     i.message = text(6);
     i.status = text(7);
-    i.created_at = text(8);
-    i.updated_at = text(9);
+    i.source = text(8);
+    i.utm_source = text(9);
+    i.utm_medium = text(10);
+    i.utm_campaign = text(11);
+    i.utm_term = text(12);
+    i.utm_content = text(13);
+    i.referrer = text(14);
+    i.created_at = text(15);
+    i.updated_at = text(16);
     return i;
 }
 
 const char* kPartnerInquiryColumns =
-    "id, kind, name, email, company, website, message, status, created_at, updated_at";
+    "id, kind, name, email, company, website, message, status, source, utm_source, "
+    "utm_medium, utm_campaign, utm_term, utm_content, referrer, created_at, updated_at";
 } // namespace
 
 bool Database::create_partner_inquiry(PartnerInquiry& inquiry) {
@@ -1037,20 +1672,30 @@ bool Database::create_partner_inquiry(PartnerInquiry& inquiry) {
     sqlite3_stmt* stmt = nullptr;
     const char* sql = R"(
         INSERT INTO partner_inquiries
-            (id, kind, name, email, company, website, message, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            (id, kind, name, email, company, website, message, status, source,
+             utm_source, utm_medium, utm_campaign, utm_term, utm_content, referrer,
+             created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     )";
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, inquiry.id.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, inquiry.kind.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 3, inquiry.name.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 4, inquiry.email.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 5, inquiry.company.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 6, inquiry.website.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 7, inquiry.message.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 8, inquiry.status.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 9, inquiry.created_at.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 10, inquiry.updated_at.c_str(), -1, SQLITE_STATIC);
+    int index = 1;
+    sqlite3_bind_text(stmt, index++, inquiry.id.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.kind.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.name.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.email.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.company.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.website.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.message.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.status.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.source.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.utm_source.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.utm_medium.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.utm_campaign.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.utm_term.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.utm_content.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.referrer.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.created_at.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, index++, inquiry.updated_at.c_str(), -1, SQLITE_STATIC);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
@@ -2010,7 +2655,8 @@ const char* CAMPAIGN_SELECT_COLUMNS =
     "id, site_id, placement_id, name, destination_url, format, title, body, "
     "image_url, alt_text, cta_label, status, source_type, affiliate_offer_id, "
     "disclosure_override, starts_at, ends_at, priority, weight, created_at, "
-    "updated_at, published_at";
+    "updated_at, published_at, cpm_cents, daily_budget_cents, "
+    "frequency_cap_impressions, frequency_cap_window_hours, audience_segment_id";
 
 Campaign campaign_from_row(sqlite3_stmt* stmt, int base = 0) {
     auto text = [&](int i) -> std::string {
@@ -2040,6 +2686,11 @@ Campaign campaign_from_row(sqlite3_stmt* stmt, int base = 0) {
     c.created_at = text(19);
     c.updated_at = text(20);
     c.published_at = text(21);
+    c.cpm_cents = sqlite3_column_int(stmt, base + 22);
+    c.daily_budget_cents = sqlite3_column_int(stmt, base + 23);
+    c.frequency_cap_impressions = sqlite3_column_int(stmt, base + 24);
+    c.frequency_cap_window_hours = sqlite3_column_int(stmt, base + 25);
+    c.audience_segment_id = text(26);
     return c;
 }
 } // namespace
@@ -2102,8 +2753,10 @@ bool Database::create_campaign(Campaign& campaign) {
         (id, site_id, placement_id, name, destination_url, format, title, body,
          image_url, alt_text, cta_label, source_type, affiliate_offer_id,
          disclosure_override, status, starts_at, ends_at, priority, weight,
+         cpm_cents, daily_budget_cents, frequency_cap_impressions,
+         frequency_cap_window_hours, audience_segment_id,
          created_at, updated_at, published_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     )";
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
@@ -2127,6 +2780,11 @@ bool Database::create_campaign(Campaign& campaign) {
     sqlite3_bind_text(stmt, i++, campaign.ends_at.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, i++, campaign.priority);
     sqlite3_bind_int(stmt, i++, campaign.weight);
+    sqlite3_bind_int(stmt, i++, campaign.cpm_cents);
+    sqlite3_bind_int(stmt, i++, campaign.daily_budget_cents);
+    sqlite3_bind_int(stmt, i++, campaign.frequency_cap_impressions);
+    sqlite3_bind_int(stmt, i++, campaign.frequency_cap_window_hours);
+    sqlite3_bind_text(stmt, i++, campaign.audience_segment_id.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, i++, campaign.created_at.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, i++, campaign.updated_at.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, i++, campaign.published_at.c_str(), -1, SQLITE_STATIC);
@@ -2160,6 +2818,8 @@ bool Database::update_campaign(const Campaign& campaign) {
             title = ?, body = ?, image_url = ?, alt_text = ?, cta_label = ?,
             source_type = ?, affiliate_offer_id = ?, disclosure_override = ?,
             status = ?, starts_at = ?, ends_at = ?, priority = ?, weight = ?,
+            cpm_cents = ?, daily_budget_cents = ?, frequency_cap_impressions = ?,
+            frequency_cap_window_hours = ?, audience_segment_id = ?,
             updated_at = ?, published_at = CASE WHEN ? = 'active' AND (published_at IS NULL OR published_at = '') THEN ? ELSE published_at END
         WHERE id = ?;
     )";
@@ -2182,10 +2842,15 @@ bool Database::update_campaign(const Campaign& campaign) {
     sqlite3_bind_text(stmt, 15, campaign.ends_at.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 16, campaign.priority);
     sqlite3_bind_int(stmt, 17, campaign.weight);
-    sqlite3_bind_text(stmt, 18, now.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 19, campaign.status.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 20, now.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 21, campaign.id.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 18, campaign.cpm_cents);
+    sqlite3_bind_int(stmt, 19, campaign.daily_budget_cents);
+    sqlite3_bind_int(stmt, 20, campaign.frequency_cap_impressions);
+    sqlite3_bind_int(stmt, 21, campaign.frequency_cap_window_hours);
+    sqlite3_bind_text(stmt, 22, campaign.audience_segment_id.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 23, now.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 24, campaign.status.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 25, now.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 26, campaign.id.c_str(), -1, SQLITE_STATIC);
 
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -2393,7 +3058,9 @@ std::vector<std::pair<Placement, Campaign>> Database::get_eligible_campaigns_for
             c.id, c.site_id, c.placement_id, c.name, c.destination_url, c.format,
             c.title, c.body, c.image_url, c.alt_text, c.cta_label, c.status,
             c.source_type, c.affiliate_offer_id, c.disclosure_override, c.starts_at,
-            c.ends_at, c.priority, c.weight, c.created_at, c.updated_at, c.published_at
+            c.ends_at, c.priority, c.weight, c.created_at, c.updated_at, c.published_at,
+            c.cpm_cents, c.daily_budget_cents, c.frequency_cap_impressions,
+            c.frequency_cap_window_hours, c.audience_segment_id
         FROM campaigns c
         JOIN placements p ON c.placement_id = p.id AND p.site_id = c.site_id
         WHERE c.site_id = ? AND c.status IN ('active', 'scheduled') AND p.status = 'active'
@@ -2435,6 +3102,66 @@ std::vector<std::pair<Placement, Campaign>> Database::get_eligible_campaigns_for
 
     sqlite3_finalize(stmt);
     return results;
+}
+
+std::vector<std::pair<Placement, Campaign>> Database::get_delivery_campaign_candidates(
+    const std::string& site_id, const std::string& now_iso) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::pair<Placement, Campaign>> results;
+    const char* sql = R"(
+        SELECT
+            p.id, p.site_id, p.placement_key, p.name, p.description, p.format,
+            p.width, p.height, p.fallback_behavior, p.allowed_source_types,
+            p.max_items, p.layout_config, p.disclosure_mode, p.status, p.created_at, p.updated_at,
+            c.id, c.site_id, c.placement_id, c.name, c.destination_url, c.format,
+            c.title, c.body, c.image_url, c.alt_text, c.cta_label, c.status,
+            c.source_type, c.affiliate_offer_id, c.disclosure_override, c.starts_at,
+            c.ends_at, c.priority, c.weight, c.created_at, c.updated_at, c.published_at,
+            c.cpm_cents, c.daily_budget_cents, c.frequency_cap_impressions,
+            c.frequency_cap_window_hours, c.audience_segment_id
+        FROM campaigns c
+        JOIN placements p ON c.placement_id = p.id AND p.site_id = c.site_id
+        WHERE c.site_id = ? AND c.status IN ('active', 'scheduled') AND p.status = 'active'
+        ORDER BY p.id, c.priority DESC, c.id;
+    )";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return results;
+    sqlite3_bind_text(stmt, 1, site_id.c_str(), -1, SQLITE_STATIC);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        Placement p = placement_from_row(stmt, 0);
+        Campaign c = campaign_from_row(stmt, 16);
+        if (!utils::is_safe_url(c.destination_url)) continue;
+        if (c.format.empty()) c.format = p.format;
+        if (c.source_type.empty()) c.source_type = "house";
+        if (std::find(p.allowed_source_types.begin(), p.allowed_source_types.end(), c.source_type) ==
+            p.allowed_source_types.end()) {
+            continue;
+        }
+        if (!utils::is_campaign_active_schedule(c.starts_at, c.ends_at, now_iso)) continue;
+        results.push_back({p, c});
+    }
+    sqlite3_finalize(stmt);
+    return results;
+}
+
+long long Database::get_campaign_impressions_between(const std::string& campaign_id,
+                                                      const std::string& start_iso,
+                                                      const std::string& end_iso) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = R"(
+        SELECT COUNT(*) FROM ad_events
+        WHERE campaign_id = ? AND event_type = 'impression'
+          AND occurred_at >= ? AND occurred_at <= ?;
+    )";
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, campaign_id.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, start_iso.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, end_iso.c_str(), -1, SQLITE_STATIC);
+    long long count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) count = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return count;
 }
 
 // Events
@@ -2538,8 +3265,8 @@ nlohmann::json Database::get_analytics_summary(const std::optional<std::string>&
                     {"impressions", "adcontrol_observed"},
                     {"clicks", "adcontrol_observed"},
                     {"outbound_redirects", "adcontrol_observed"},
-                    {"conversions", "not_connected"},
-                    {"commission", "not_connected"}
+                    {"conversions", "conversion_source_reported"},
+                    {"commission", "reconciled"}
                 }}};
     }
 
@@ -2568,23 +3295,54 @@ nlohmann::json Database::get_analytics_summary(const std::optional<std::string>&
         ctr = (static_cast<double>(clicks) / static_cast<double>(impressions)) * 100.0;
     }
 
+    int64_t confirmed_conversions = 0;
+    int64_t confirmed_commission = 0;
+    std::string conversion_sql = R"(
+        SELECT COUNT(*), COALESCE(SUM(commission_cents), 0)
+        FROM conversion_events
+        WHERE status IN ('approved', 'reconciled')
+    )";
+    if (site_id.has_value()) conversion_sql += " AND site_id = ?";
+    if (placement_id.has_value()) {
+        conversion_sql += " AND campaign_id IN (SELECT id FROM campaigns WHERE placement_id = ?)";
+    }
+    if (campaign_id.has_value()) conversion_sql += " AND campaign_id = ?";
+    if (publisher_id.has_value()) conversion_sql += " AND publisher_id = ?";
+    if (!range_start.empty()) conversion_sql += " AND occurred_at >= ?";
+    if (!range_end.empty()) conversion_sql += " AND occurred_at <= ?";
+    stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, conversion_sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        int conv_idx = 1;
+        if (site_id.has_value()) sqlite3_bind_text(stmt, conv_idx++, site_id->c_str(), -1, SQLITE_STATIC);
+        if (placement_id.has_value()) sqlite3_bind_text(stmt, conv_idx++, placement_id->c_str(), -1, SQLITE_STATIC);
+        if (campaign_id.has_value()) sqlite3_bind_text(stmt, conv_idx++, campaign_id->c_str(), -1, SQLITE_STATIC);
+        if (publisher_id.has_value()) sqlite3_bind_text(stmt, conv_idx++, publisher_id->c_str(), -1, SQLITE_STATIC);
+        if (!range_start.empty()) sqlite3_bind_text(stmt, conv_idx++, range_start.c_str(), -1, SQLITE_STATIC);
+        if (!range_end.empty()) sqlite3_bind_text(stmt, conv_idx, range_end.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            confirmed_conversions = sqlite3_column_int64(stmt, 0);
+            confirmed_commission = sqlite3_column_int64(stmt, 1);
+        }
+        sqlite3_finalize(stmt);
+    }
+
     return {
         {"impressions", impressions},
         {"clicks", clicks},
         {"outbound_redirects", outbound_redirects},
         {"affiliate_clicks", affiliate_clicks},
         {"ctr", ctr},
-        // Only AdControl-observed counts are returned. External conversion and
-        // commission data is not connected in the MVP and must never be inferred
-        // from redirect events.
-        {"confirmed_conversions", 0},
-        {"confirmed_commission", 0},
+        // Confirmed conversions come only from approved or reconciled events
+        // reported by a pixel, browser SDK, or HMAC-signed webhook. A redirect
+        // is never inferred as a sale.
+        {"confirmed_conversions", confirmed_conversions},
+        {"confirmed_commission", confirmed_commission},
         {"provenance", {
             {"impressions", "adcontrol_observed"},
             {"clicks", "adcontrol_observed"},
             {"outbound_redirects", "adcontrol_observed"},
-            {"conversions", "not_connected"},
-            {"commission", "not_connected"}
+            {"conversions", "conversion_source_reported"},
+            {"commission", "reconciled"}
         }}
     };
 }

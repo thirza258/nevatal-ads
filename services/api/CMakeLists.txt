@@ -21,8 +21,16 @@ include_directories(
 # Common library sources
 set(COMMON_SOURCES
     src/db.cpp
+    src/billing_db.cpp
+    src/conversion_db.cpp
+    src/automation_db.cpp
+    src/automation_engine.cpp
+    src/crm_db.cpp
+    src/seo_db.cpp
+    src/experiments_db.cpp
     src/learning_db.cpp
     src/handlers.cpp
+    src/feature_handlers.cpp
     src/smtp.cpp
 )
 
@@ -32,6 +40,7 @@ add_executable(adcontrol-api
     ${COMMON_SOURCES}
 )
 
+target_compile_definitions(adcontrol-api PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 target_link_libraries(adcontrol-api PRIVATE
     Threads::Threads
     OpenSSL::SSL
@@ -46,10 +55,18 @@ endif()
 add_executable(adcontrol-tests
     tests/test_main.cpp
     src/db.cpp
+    src/billing_db.cpp
+    src/conversion_db.cpp
+    src/automation_db.cpp
+    src/automation_engine.cpp
+    src/crm_db.cpp
+    src/seo_db.cpp
+    src/experiments_db.cpp
     src/learning_db.cpp
     src/smtp.cpp
 )
 
+target_compile_definitions(adcontrol-tests PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 target_link_libraries(adcontrol-tests PRIVATE
     Threads::Threads
     OpenSSL::SSL

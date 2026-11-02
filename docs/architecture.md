@@ -254,6 +254,27 @@ users ──< learning_course_revisions (created_by)
 audit_logs (append-only from the API's perspective)
 
 partner_inquiries (public applications; no account or tenant link)
+
+Lifecycle and intelligence plane
+publishers ──< conversion_sources ──< conversion_events >── campaigns/sites
+campaigns ──< experiment_variants >── experiments ──< placements
+publishers ──< automation_workflows ──< automation_steps
+automation_workflows ──< automation_runs
+publishers ──< notifications
+crm_leads ──< crm_activities
+crm_leads ──< crm_tasks
+partner_inquiries ──> crm_leads (one-to-one conversion)
+sites ──< seo_projects ──< seo_keywords ──< seo_rankings
+seo_projects ──< seo_competitors ──< seo_competitor_keywords
+seo_projects ──< seo_backlinks
+seo_projects ──< seo_audits ──< seo_audit_issues
+seo_projects ──< geo_queries ──< geo_mentions
+sites ──< audience_segments >── campaigns
+billing_plans ──< publisher_subscriptions >── publishers
+publishers/users ──< billing_invoices ──< billing_invoice_items
+billing_invoices ──< billing_payments
+publishers ──< publisher_payouts
+users ──< learning_course_entitlements >── learning_courses
 ```
 
 The advertising and learning tables share the `users` table and session store but
@@ -266,7 +287,13 @@ use distinct roles and authorization helpers. Learner accounts have no
 | `publishers` | name, owner_user_id, status, contact_email, timezone (`owner_email` is derived from the owner login) | Invite-only; provisioning creates the owner login |
 | `sites` | publisher_id, name, primary_domain, allowed_domains, public_site_key, verification_status, monetization_status, default_disclosure_text, allowed_ad_sources, config_version | Publisher sites start unverified; allowlist plus verification gate delivery |
 | `placements` | site_id, placement_key, format, width, height, fallback_behavior, allowed_source_types, max_items, disclosure_mode, status | `UNIQUE(site_id, placement_key)` |
-| `campaigns` | site_id, placement_id, source_type, affiliate_offer_id, destination_url, disclosure_override, creative fields, status, schedule, priority, weight | Drafts are invisible to delivery until published; affiliate destinations are server-derived |
+| `campaigns` | site_id, placement_id, source_type, affiliate_offer_id, destination_url, disclosure_override, creative fields, status, schedule, priority, weight, daily_budget_cents, frequency caps, audience_segment_id | Drafts are invisible to delivery until published; affiliate destinations are server-derived; highest-tier eligible campaigns rotate by weight |
+| `conversion_sources` / `conversion_events` | site, publisher, public key, encrypted signing secret; external_id, campaign/offer, value, commission, status, UTM/touch JSON, ingestion | Signed webhook, SDK, or pixel ingestion; approved/reconciled events feed analytics and commission reconciliation |
+| `automation_workflows` / steps / runs | publisher/site scope, trigger config, ordered condition/delay/action steps, run state and log | Single worker evaluates schedules/performance and executes actions; public HTTPS webhooks only |
+| `crm_leads` / activities / tasks | contact fields, source/UTM, stage, score, owner, value, follow-ups | Public partner inquiries become leads once; admin-only CRM |
+| `seo_projects` / keywords / rankings / competitors / backlinks / audits / GEO | site-scoped projects and intelligence data | Keyword positions and GEO/backlink data are manual/imported; audits fetch only verified-site HTTPS URLs |
+| `experiments` / `experiment_variants` / `audience_segments` | placement, objective, sample/lift thresholds, winner, variant weights; segment rules | Running experiments use tab-scoped visitor assignment; optimizer reallocates weights and pauses losers on a winner |
+| `billing_*`, `publisher_payouts`, `learning_course_entitlements` | plans, subscriptions, usage invoices, manual payments, course entitlements, payouts | Manual offline settlement; no card processor |
 | `affiliate_offers` | publisher_id, provider, product metadata, exact affiliate_url, canonical_product_url, disclosure_text, status, validation_status | Manually entered; structural validation only; publisher-scoped |
 | `ad_events` | site_id, placement_id, campaign_id, source_type, affiliate_offer_id, event_type, event_id, occurred_at, page_origin, referrer, ua_category, ip_hash | `event_id` is globally unique; impressions, clicks, and outbound redirects share the table |
 | `learning_topics` | slug, title, description, status, sort_order | Seeded; public only when published |
@@ -307,14 +334,25 @@ Delivery applies these rules in order:
 9. Affiliate campaigns require a non-empty `affiliate_offer_id`; the referenced
    offer must exist, be `active`, not be `rejected`, belong to the same
    `publisher_id` as the site, and still pass strict affiliate URL validation.
-10. For each placement, campaigns are ordered by `priority DESC`, then
-    `weight DESC`; the first eligible campaign is delivered.
+10. For each placement, all eligible campaigns remain candidates. The handler
+    removes campaigns whose audience segment does not match the request's UTM,
+    device, or referrer rules, and campaigns whose daily impression budget is
+    exhausted.
+11. A running experiment on the placement selects a variant by its optimizer
+    weights using a tab-scoped SDK visitor identifier (or a 30-second rotation
+    bucket when no visitor is supplied). Otherwise, the highest priority tier is
+    selected and one campaign is chosen by weighted rotation using a 30-second
+    time-window seed.
 
-The current selection rule is **one deliverable campaign per placement**.
-`priority` picks the campaign; `weight` is a deterministic tie-breaker, not
-weighted rotation. The status of a scheduled campaign is advanced to
-`active`/`expired` by hourly maintenance and opportunistically when delivery or
-clicks are evaluated.
+The selection rule is **one deliverable campaign per placement per refresh**.
+Priority gates the tier; weight provides proportional rotation within that tier.
+Experiment weights can be reallocated by performance, and an automatic winner
+pauses losing variants. Delivery responses are set to private caching while an
+experiment is running so shared caches cannot mix variant assignments.
+Scheduled campaign states advance hourly and opportunistically when delivery or
+clicks are evaluated. Browser-side frequency caps are included in the delivery
+payload; the SDK suppresses rendering and impression counting when the local cap
+is reached.
 
 Site eligibility and origin checks are re-applied independently on impression
 ingestion, which also verifies that the placement exists and the campaign belongs
@@ -416,20 +454,29 @@ DNS: marketing.nevatal.id ──► Cloudflare edge ──► tunnel ──► c
   Learning accounts cannot access advertising APIs, and publisher/analyst
   accounts cannot access learning APIs. There is no public staff signup and no
   staff-removal endpoint in the learning MVP.
-- **Free learning only.** There is no payment, entitlement, certificate, cohort,
-  marketplace, or owned-video hosting. Learning topics and paths are seeded and
-  read-only; only courses have an authoring workflow. Route metadata is
-  client-rendered, not server-rendered.
-- **No conversion tracking.** Affiliate URLs are manually entered and
-  structurally validated only. AdControl does not call Shopee, generate
-  affiliate links, ingest commissions, or confirm sales. `confirmed_conversions`
-  and `confirmed_commission` remain zero with provenance `not_connected`.
+- **Paid learning is manual-settlement only.** Courses can be free or paid; paid
+  access requires an entitlement granted when an administrator records invoice
+  payment. There is no card checkout, tax engine, certificate, cohort,
+  marketplace, or owned-video hosting. Topics and paths are seeded and read-only;
+  route metadata is client-rendered.
+- **Conversion sources are explicit.** Affiliate URLs are manually entered and
+  structurally validated only. AdControl does not call Shopee, generate affiliate
+  links, or ingest commissions automatically. Confirmed metrics come only from an
+  approved/reconciled conversion source (browser SDK, pixel, or HMAC webhook);
+  a click is never treated as a sale.
 - **No external ad network.** Provider integration is represented by the
   `external_network` source type, but it is rejected at validation until terms
-  and credentials are approved. No provider adapter is implemented, so serving
-  makes no third-party network calls.
+  and credentials are approved. No provider adapter is implemented.
 - **No creative image hosting or proxying;** images are hotlinked from HTTPS
-  URLs. No weighted rotation, frequency capping, or geo targeting.
+  URLs. Audience rules cover UTM, inferred device, and referrer substrings; there
+  is no IP geolocation targeting.
+- **Intelligence data is manual/imported.** SERP positions, backlinks, and AI
+  search visibility are not scraped or fetched from provider APIs. Technical
+  audits fetch only verified-site HTTPS URLs and reject private/loopback
+  resolutions.
+- **Automation is single-worker.** Webhook actions are public HTTPS only, redirects
+  are not followed, and there is no durable retry queue. CRM email requires SMTP
+  configuration and has no inbound mail or calendar sync.
 - Rate-limit counters are in process memory and reset on restart. Behind
   Cloudflare Tunnel all visitors share the origin peer, so use Cloudflare WAF
   rate limiting for internet-facing abuse controls.

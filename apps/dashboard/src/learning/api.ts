@@ -18,6 +18,9 @@ import {
   MyLearningResponse,
   PartnerInquiryInput,
   PartnerInquiryResponse,
+  PurchaseDetailResponse,
+  PurchaseHistoryResponse,
+  PurchaseResponse,
   QuizAttemptResponse,
   TopicDetailResponse,
   TopicListResponse,
@@ -164,6 +167,23 @@ export const learningApi = {
     return request<EnrollResponse>(`/api/v3/learning/courses/${encodeURIComponent(slug)}/enroll`, {
       method: 'POST',
     });
+  },
+
+  async purchaseCourse(slug: string): Promise<PurchaseResponse> {
+    return request<PurchaseResponse>(
+      `/api/v3/learning/courses/${encodeURIComponent(slug)}/purchase`,
+      { method: 'POST' },
+    );
+  },
+
+  async purchases(): Promise<PurchaseHistoryResponse> {
+    return request<PurchaseHistoryResponse>('/api/v3/learning/purchases');
+  },
+
+  async purchase(invoiceId: string): Promise<PurchaseDetailResponse> {
+    return request<PurchaseDetailResponse>(
+      `/api/v3/learning/purchases/${encodeURIComponent(invoiceId)}`,
+    );
   },
 
   async myLearning(): Promise<MyLearningResponse> {

@@ -328,7 +328,7 @@ check "Invalid /r/ token is rejected" "$([ "$(status_code "$BASE/r/not-a-real-to
 AFF_SUMMARY="$(curl -fsS "$BASE/api/v1/analytics/summary?site_id=$PUB_SITE_ID" "${PUB_AUTH[@]}")"
 check "Affiliate clicks appear in observed analytics" "$([ "$(echo "$AFF_SUMMARY" | jq -r '.affiliate_clicks')" -ge 1 ] && echo true || echo false)"
 check "Outbound redirects are counted separately" "$([ "$(echo "$AFF_SUMMARY" | jq -r '.outbound_redirects')" -ge 1 ] && echo true || echo false)"
-check "Confirmed commission is never inferred" "$(echo "$AFF_SUMMARY" | jq -e '.confirmed_conversions == 0 and .confirmed_commission == 0 and .provenance.conversions == "not_connected"' >/dev/null && echo true || echo false)"
+check "Confirmed commission is never inferred" "$(echo "$AFF_SUMMARY" | jq -e '.confirmed_conversions == 0 and .confirmed_commission == 0 and .provenance.conversions == "conversion_source_reported"' >/dev/null && echo true || echo false)"
 AFF_BREAKDOWN="$(curl -fsS "$BASE/api/v1/analytics/breakdown?dimension=source&site_id=$PUB_SITE_ID" "${PUB_AUTH[@]}")"
 check "Analytics supports ad-source breakdown" "$(echo "$AFF_BREAKDOWN" | jq -e '.rows[] | select(.key == "affiliate" and .outbound_redirects >= 1)' >/dev/null && echo true || echo false)"
 

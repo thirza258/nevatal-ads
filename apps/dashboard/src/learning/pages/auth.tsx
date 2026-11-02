@@ -27,8 +27,9 @@ const AuthShell: React.FC<{
           Learn the craft. <br />Measure it honestly.
         </h2>
         <p className="mt-4 max-w-md text-base leading-7 text-slate-600">
-          A free learning account unlocks every course, keeps your progress, and gives you a place to
-          return to. No payment details, ever, during launch.
+          A free learning account keeps your progress and gives you a place to return to. Free
+          courses require no payment details; paid courses use a manual invoice and unlock after
+          settlement.
         </p>
         <ul className="mt-8 space-y-4 text-sm text-slate-700">
           <li className="flex items-start gap-3">

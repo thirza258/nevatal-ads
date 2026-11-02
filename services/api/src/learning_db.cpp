@@ -57,7 +57,8 @@ const char* COURSE_SELECT =
     "c.status, COALESCE(c.author_id, ''), COALESCE(au.email, ''), "
     "COALESCE(c.reviewer_id, ''), COALESCE(ru.email, ''), c.version, "
     "COALESCE(c.published_at, ''), COALESCE(c.last_reviewed_at, ''), "
-    "COALESCE(c.next_review_due_at, ''), c.created_at, c.updated_at "
+    "COALESCE(c.next_review_due_at, ''), c.created_at, c.updated_at, "
+    "c.price_cents, c.currency, c.access_type "
     "FROM learning_courses c "
     "LEFT JOIN learning_topics t ON t.id = c.topic_id "
     "LEFT JOIN users au ON au.id = c.author_id "
@@ -87,6 +88,9 @@ LearningCourse course_from_row(sqlite3_stmt* stmt) {
     course.next_review_due_at = text_col(stmt, 19);
     course.created_at = text_col(stmt, 20);
     course.updated_at = text_col(stmt, 21);
+    course.price_cents = int_col(stmt, 22);
+    course.currency = text_col(stmt, 23).empty() ? "USD" : text_col(stmt, 23);
+    course.access_type = text_col(stmt, 24).empty() ? "free" : text_col(stmt, 24);
     return course;
 }
 
@@ -569,8 +573,9 @@ bool Database::create_learning_course(LearningCourse& course, std::string& error
     const char* sql =
         "INSERT INTO learning_courses (id, slug, topic_id, title, summary, description_md, level, "
         "duration_minutes, outcomes, status, author_id, reviewer_id, version, published_at, "
-        "last_reviewed_at, next_review_due_at, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        "last_reviewed_at, next_review_due_at, created_at, updated_at, "
+        "price_cents, currency, access_type) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
     if (!prepare(db_, sql, &stmt)) {
         error = "Could not create course";
         return false;
@@ -597,6 +602,9 @@ bool Database::create_learning_course(LearningCourse& course, std::string& error
     else bind_text(stmt, 16, course.next_review_due_at);
     bind_text(stmt, 17, course.created_at);
     bind_text(stmt, 18, course.updated_at);
+    sqlite3_bind_int(stmt, 19, course.price_cents);
+    bind_text(stmt, 20, course.currency.empty() ? "USD" : course.currency);
+    bind_text(stmt, 21, course.access_type.empty() ? "free" : course.access_type);
     int rc = sqlite3_step(stmt);
     finalize(stmt);
     if (rc != SQLITE_DONE) {
@@ -615,6 +623,7 @@ bool Database::update_learning_course(const LearningCourse& course) {
     const char* sql =
         "UPDATE learning_courses SET slug = ?, topic_id = ?, title = ?, summary = ?, "
         "description_md = ?, level = ?, duration_minutes = ?, outcomes = ?, version = ?, "
+        "price_cents = ?, currency = ?, access_type = ?, "
         "updated_at = ? WHERE id = ?;";
     if (!prepare(db_, sql, &stmt)) return false;
     bind_text(stmt, 1, course.slug);
@@ -626,8 +635,11 @@ bool Database::update_learning_course(const LearningCourse& course) {
     sqlite3_bind_int(stmt, 7, course.duration_minutes);
     bind_text(stmt, 8, outcomes_to_json(course.outcomes));
     sqlite3_bind_int(stmt, 9, course.version);
-    bind_text(stmt, 10, course.updated_at);
-    bind_text(stmt, 11, course.id);
+    sqlite3_bind_int(stmt, 10, course.price_cents);
+    bind_text(stmt, 11, course.currency.empty() ? "USD" : course.currency);
+    bind_text(stmt, 12, course.access_type.empty() ? "free" : course.access_type);
+    bind_text(stmt, 13, course.updated_at);
+    bind_text(stmt, 14, course.id);
     int rc = sqlite3_step(stmt);
     finalize(stmt);
     return rc == SQLITE_DONE && sqlite3_changes(db_) > 0;

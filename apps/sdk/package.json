@@ -4,7 +4,7 @@
   "version": "1.3.0",
   "description": "AdControl browser delivery SDK",
   "scripts": {
-    "build": "tsc -p tsconfig.json && esbuild src/adcontrol.ts --bundle --minify --target=es2018 --format=iife --legal-comments=none --outfile=dist/adcontrol.js && cp src/adcontrol.css dist/adcontrol.css",
+    "build": "tsc -p tsconfig.json && esbuild src/adcontrol.ts --bundle --minify --target=es2018 --format=iife --legal-comments=none --outfile=dist/adcontrol.js && esbuild src/conversion.ts --bundle --minify --target=es2018 --format=iife --legal-comments=none --outfile=dist/adcontrol-conversion.js && cp src/adcontrol.css dist/adcontrol.css",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {

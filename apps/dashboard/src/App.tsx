@@ -9,10 +9,16 @@ import { OverviewView } from './views/OverviewView';
 import { WebsitesView } from './views/WebsitesView';
 import { PlacementsView } from './views/PlacementsView';
 import { CampaignsView } from './views/CampaignsView';
+import { ConversionsView } from './views/ConversionsView';
+import { AutomationView } from './views/AutomationView';
+import { SeoView } from './views/SeoView';
+import { OptimizationView } from './views/OptimizationView';
+import { BillingView } from './views/BillingView';
 import { EmailMarketingView } from './views/EmailMarketingView';
 import { AffiliateOffersView } from './views/AffiliateOffersView';
 import { PublishersView } from './views/PublishersView';
 import { InquiriesView } from './views/InquiriesView';
+import { CrmView } from './views/CrmView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { AuditLogView } from './views/AuditLogView';
 import { SandboxView } from './views/SandboxView';
@@ -283,14 +289,26 @@ const App: React.FC = () => {
             openCreateModalDirectly={quickCreate === 'campaigns'}
           />
         );
+      case 'conversions':
+        return <ConversionsView role={user.role} onNotify={notify} />;
+      case 'automation':
+        return <AutomationView role={user.role} onNotify={notify} />;
+      case 'seo':
+        return <SeoView role={user.role} onNotify={notify} />;
+      case 'optimization':
+        return <OptimizationView onNotify={notify} />;
       case 'email':
         return <EmailMarketingView onNotify={notify} />;
+      case 'billing':
+        return <BillingView role={user.role} onNotify={notify} />;
       case 'affiliate':
         return <AffiliateOffersView onNotify={notify} role={user.role} />;
       case 'publishers':
         return <PublishersView onNotify={notify} />;
       case 'inquiries':
         return <InquiriesView onNotify={notify} />;
+      case 'crm':
+        return <CrmView onNotify={notify} />;
       case 'analytics':
         return <AnalyticsView onNotify={notify} showPublisherFilter={user.role === 'admin'} />;
       case 'audit':

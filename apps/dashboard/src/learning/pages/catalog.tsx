@@ -29,7 +29,7 @@ import {
 import { Markdown } from '../markdown';
 import { Link, useRouter } from '../router';
 import { useSeo } from '../seo';
-import { formatDate, formatError, isLearningUser, levelLabel, useAuth, useRemote } from '../state';
+import { formatDate, formatError, formatMoney, isLearningUser, levelLabel, useAuth, useRemote } from '../state';
 import { LearningPath, LearningTopic } from '../types';
 
 const isReviewOverdue = (value?: string): boolean => {
@@ -69,13 +69,14 @@ export const HomePage: React.FC = () => {
       <section className="border-b border-slate-200/80 bg-white">
         <Container className="grid items-center gap-10 py-12 sm:py-16 lg:grid-cols-[1.25fr_0.75fr] lg:py-20">
           <div>
-            <div className="lc-eyebrow">Free launch catalog</div>
+            <div className="lc-eyebrow">Open course catalog</div>
             <h1 className="mt-3 max-w-3xl text-4xl font-bold leading-[1.08] tracking-[-0.03em] text-slate-950 sm:text-5xl lg:text-6xl">
               Marketing skills you can put to work today.
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
               Learn the foundations, the platforms, and the measurement habits behind responsible
-              advertising. Short lessons, practical exercises, and no paywall during launch.
+              advertising. Short lessons, practical exercises, and a catalog that clearly marks any
+              paid course.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link to="/courses" className="lc-button lc-button-primary px-5 py-3">
@@ -89,7 +90,7 @@ export const HomePage: React.FC = () => {
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-600">
               <span className="inline-flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-teal-700" aria-hidden="true" />
-                Always free at launch
+                Free core courses
               </span>
               <span className="inline-flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-teal-700" aria-hidden="true" />
@@ -312,7 +313,7 @@ export const CoursesPage: React.FC = () => {
 
   useSeo({
     title: 'All courses',
-    description: 'Browse every free AdControl Learning course across marketing foundations, SEO, GEO, paid search, affiliate publishing, content, and analytics.',
+    description: 'Browse every AdControl Learning course across marketing foundations, SEO, GEO, paid search, affiliate publishing, content, and analytics.',
     path: '/courses',
   });
 
@@ -346,7 +347,7 @@ export const CoursesPage: React.FC = () => {
         <div className="lc-eyebrow">Catalog</div>
         <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">All courses</h1>
         <p className="mt-3 text-base leading-7 text-slate-600">
-          Free, focused courses for marketers who want practical skills and measurement they can defend.
+          Focused courses for marketers who want practical skills and measurement they can defend.
         </p>
       </div>
 
@@ -440,13 +441,14 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
   const { user } = useAuth();
   const [enrolling, setEnrolling] = useState(false);
   const [enrollError, setEnrollError] = useState<string | null>(null);
+  const [purchaseInvoice, setPurchaseInvoice] = useState<import('../types').BillingInvoice | null>(null);
   const [previewLessonId, setPreviewLessonId] = useState<string | null>(null);
   const detail = useRemote(() => learningApi.getCourse(slug), [slug]);
   const course = detail.data?.course;
 
   useSeo({
     title: course?.title || 'Course',
-    description: course?.summary || 'A free course from AdControl Learning.',
+    description: course?.summary || 'A course from AdControl Learning.',
     path: `/courses/${slug}`,
     type: 'article',
   });
@@ -461,11 +463,34 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
     }
     setEnrolling(true);
     setEnrollError(null);
+    setPurchaseInvoice(null);
     try {
       await learningApi.enroll(slug);
       navigate(`/learn/${slug}`);
     } catch (error) {
-      setEnrollError(formatError(error));
+      const status = (error as { status?: number }).status;
+      if (course?.access_type === 'paid' && status === 402) {
+        try {
+          const purchase = await learningApi.purchaseCourse(slug);
+          setPurchaseInvoice(purchase.invoice);
+        } catch (purchaseError) {
+          const purchaseStatus = (purchaseError as { status?: number }).status;
+          if (purchaseStatus === 409) {
+            // Access was granted after the page loaded; enrollment can now succeed.
+            try {
+              await learningApi.enroll(slug);
+              navigate(`/learn/${slug}`);
+              return;
+            } catch (retryError) {
+              setEnrollError(formatError(retryError));
+            }
+          } else {
+            setEnrollError(formatError(purchaseError));
+          }
+        }
+      } else {
+        setEnrollError(formatError(error));
+      }
     } finally {
       setEnrolling(false);
     }
@@ -519,7 +544,9 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
             >
               {course.topic_title}
             </Link>
-            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">Free</span>
+            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+              {course.access_type === 'paid' ? formatMoney(course.price_cents, course.currency) : 'Free'}
+            </span>
             {isReviewOverdue(course.next_review_due_at) && (
               <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-950">
                 Review due
@@ -533,7 +560,7 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
           <meta itemProp="description" content={course.summary} />
           <meta itemProp="courseCode" content={course.slug} />
           <meta itemProp="educationalLevel" content={levelLabel(course.level)} />
-          <meta itemProp="isAccessibleForFree" content="true" />
+          <meta itemProp="isAccessibleForFree" content={course.access_type === 'paid' ? 'false' : 'true'} />
           <span className="hidden" itemProp="provider" itemScope itemType="https://schema.org/Organization">
             <meta itemProp="name" content="AdControl Learning" />
           </span>
@@ -636,10 +663,25 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
 
             <aside className="space-y-5 lg:sticky lg:top-24 lg:self-start">
               <div className="lc-card p-5">
-                <div className="text-sm font-semibold text-slate-900">Enroll for free</div>
+                <div className="text-sm font-semibold text-slate-900">
+                  {course.access_type === 'paid'
+                    ? `Purchase for ${formatMoney(course.price_cents, course.currency)}`
+                    : 'Enroll for free'}
+                </div>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Create or use a free learning account to unlock every lesson, save progress, and take quizzes.
+                  {course.access_type === 'paid'
+                    ? 'A manual invoice is created for this course. Access unlocks after an administrator confirms the offline payment.'
+                    : 'Create or use a free learning account to unlock every lesson, save progress, and take quizzes.'}
                 </p>
+                {purchaseInvoice && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950" role="status">
+                    <div className="font-semibold">Invoice created · {formatMoney(purchaseInvoice.total_cents, purchaseInvoice.currency)}</div>
+                    <div className="mt-1 font-mono text-[10px] text-amber-800">{purchaseInvoice.id}</div>
+                    <div className="mt-1">
+                      Status: {purchaseInvoice.status.replace('_', ' ')}. An administrator will confirm payment; then open this course again to enroll.
+                    </div>
+                  </div>
+                )}
                 {enrollError && (
                   <p className="mt-3 rounded-lg bg-rose-50 p-3 text-xs font-medium text-rose-900" role="alert">
                     {enrollError}
@@ -663,8 +705,12 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
                     {enrolling
                       ? 'Opening course…'
                       : user
-                        ? 'Start this course'
-                        : 'Sign in to enroll'}
+                        ? course.access_type === 'paid'
+                          ? `Purchase for ${formatMoney(course.price_cents, course.currency)}`
+                          : 'Start this course'
+                        : course.access_type === 'paid'
+                          ? 'Sign in to purchase'
+                          : 'Sign in to enroll'}
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </button>
                 )}
@@ -676,7 +722,10 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
                 <ul className="mt-4 space-y-2 border-t border-slate-100 pt-4 text-xs text-slate-600">
                   <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />Every lesson included</li>
                   <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />Progress saved automatically</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />No payment details</li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
+                    {course.access_type === 'paid' ? 'Manual invoice; access after payment' : 'No payment details'}
+                  </li>
                 </ul>
               </div>
 

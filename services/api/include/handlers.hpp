@@ -19,6 +19,7 @@ public:
     ~ApiServer() = default;
 
     void register_routes(httplib::Server& svr, const std::string& sdk_path = "");
+    void register_feature_routes(httplib::Server& svr, const std::string& sdk_path = "");
 
 private:
     std::shared_ptr<Database> db_;

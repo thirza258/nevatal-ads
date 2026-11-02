@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "httplib.h"
+#include "automation.hpp"
 #include "db.hpp"
 #include "handlers.hpp"
 #include "utils.hpp"
@@ -261,8 +262,18 @@ int main(int argc, char** argv) {
         using clock = std::chrono::steady_clock;
         auto last_maintenance = clock::now() - std::chrono::hours(1); // run immediately
         auto last_backup = clock::now() - std::chrono::hours(24 * 30); // back up on startup
+        auto last_automation = clock::now() - std::chrono::minutes(1); // run immediately
 
         while (!g_stop) {
+            if (clock::now() - last_automation >= std::chrono::seconds(30)) {
+                int automation_processed = adcontrol::run_automation_tick(*db);
+                if (automation_processed > 0) {
+                    std::cout << "[Automation] Processed " << automation_processed
+                              << " workflow run(s)." << std::endl;
+                }
+                last_automation = clock::now();
+            }
+
             if (clock::now() - last_maintenance >= std::chrono::hours(1)) {
                 if (event_retention_days > 0) {
                     int purged = db->purge_events_older_than(event_retention_days);
@@ -274,6 +285,10 @@ int main(int argc, char** argv) {
                 int advanced = db->advance_campaign_states(adcontrol::utils::get_current_iso8601());
                 if (advanced > 0) {
                     std::cout << "[Scheduler] Advanced " << advanced << " campaign state(s)." << std::endl;
+                }
+                int optimized = db->optimize_experiments(adcontrol::utils::get_current_iso8601());
+                if (optimized > 0) {
+                    std::cout << "[Optimizer] Updated " << optimized << " experiment(s)." << std::endl;
                 }
                 last_maintenance = clock::now();
             }

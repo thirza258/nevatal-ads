@@ -338,9 +338,31 @@ account data:
 
 `impressions`, `clicks`, `outbound_redirects`, and `affiliate_clicks` are
 AdControl-observed metrics. `confirmed_conversions` and `confirmed_commission`
-are always zero with provenance `not_connected`; the product does not connect to
-Shopee or any other conversion source. Do not infer a sale, revenue, or commission
-from an outbound redirect.
+are derived only from approved or reconciled conversion events with provenance
+`conversion_source_reported` and `reconciled`. A click is not a sale, and a
+conversion source is only as trustworthy as its configuration. Do not infer a
+sale, revenue, or commission from an outbound redirect.
+
+### Conversion-source security
+
+- A conversion source has a public `csrc_…` key used by the browser SDK and pixel.
+  Source keys are write-only telemetry handles: they cannot read tenant data.
+- Server-to-server sources also have a 32-byte signing secret. It is encrypted at
+  rest with AES-256-GCM derived from `SECRET_KEY`, returned only once at creation,
+  and never serialized to clients. Webhook requests require
+  `X-AdControl-Signature: sha256=<HMAC-SHA256(raw body)>`, compared in constant
+  time.
+- `(source_id, external_id)` is unique, making retries idempotent. Use a stable
+  order ID as `external_id` or `order_id`.
+- Browser conversion attribution uses first-party localStorage for first/last
+  touch and a visitor identifier. It is not a cross-site cookie and is not sent to
+  third parties. Clearing storage reduces attribution.
+- Conversion ingestion is public by design (like any pixel), rate-limited, and
+  validated against the source's site/campaign/offer scope. Clients cannot set
+  `approved` or `reconciled`; only an authenticated administrator or the owning
+  publisher can change reconciliation status.
+- Do not put secrets in client-side snippets. Only the public source key belongs
+  in a page; signing secrets belong in the server-to-server sender.
 
 Every analytics query, list endpoint, and CSV export accepts a publisher scope
 when the caller is not an administrator. The scope is derived from the session,

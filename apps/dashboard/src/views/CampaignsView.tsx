@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
-import { AdSourceType, AffiliateOffer, Site, Placement, Campaign, AdFormat } from '../types';
+import { AdSourceType, AffiliateOffer, AudienceSegment, Site, Placement, Campaign, AdFormat } from '../types';
 import { Modal } from '../components/Modal';
 import { LiveAdPreview } from '../components/LiveAdPreview';
 import {
@@ -34,6 +34,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   const [sites, setSites] = useState<Site[]>([]);
   const [placements, setPlacements] = useState<Placement[]>([]);
   const [offers, setOffers] = useState<AffiliateOffer[]>([]);
+  const [segments, setSegments] = useState<AudienceSegment[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -65,12 +66,17 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   const [endsAt, setEndsAt] = useState('');
   const [priority, setPriority] = useState(1);
   const [weight, setWeight] = useState(100);
+  const [cpmCents, setCpmCents] = useState(0);
+  const [dailyBudgetCents, setDailyBudgetCents] = useState(0);
+  const [frequencyCap, setFrequencyCap] = useState(0);
+  const [frequencyWindowHours, setFrequencyWindowHours] = useState(24);
+  const [audienceSegmentId, setAudienceSegmentId] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [cRes, sRes, pRes, oRes] = await Promise.all([
+      const [cRes, sRes, pRes, oRes, segRes] = await Promise.all([
         api.getCampaigns({
           site_id: siteFilter !== 'all' ? siteFilter : undefined,
           placement_id: placementFilter !== 'all' ? placementFilter : undefined,
@@ -79,11 +85,13 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
         api.getSites(),
         api.getPlacements(),
         api.getAffiliateOffers().catch(() => [] as AffiliateOffer[]),
+        api.getAudienceSegments().catch(() => [] as AudienceSegment[]),
       ]);
       setCampaigns(cRes);
       setSites(sRes);
       setPlacements(pRes);
       setOffers(oRes);
+      setSegments(segRes);
 
       if (sRes.length > 0 && !formSiteId) {
         setFormSiteId(sRes[0].id);
@@ -189,6 +197,11 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
     ends_at: endsAt || undefined,
     priority: Number(priority),
     weight: Number(weight),
+    cpm_cents: Number(cpmCents) || 0,
+    daily_budget_cents: Number(dailyBudgetCents) || 0,
+    frequency_cap_impressions: Number(frequencyCap) || 0,
+    frequency_cap_window_hours: Number(frequencyWindowHours) || 24,
+    audience_segment_id: audienceSegmentId,
   });
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
@@ -297,6 +310,11 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
     setEndsAt(c.ends_at || '');
     setPriority(c.priority);
     setWeight(c.weight);
+    setCpmCents(c.cpm_cents || 0);
+    setDailyBudgetCents(c.daily_budget_cents || 0);
+    setFrequencyCap(c.frequency_cap_impressions || 0);
+    setFrequencyWindowHours(c.frequency_cap_window_hours || 24);
+    setAudienceSegmentId(c.audience_segment_id || '');
   };
 
   const resetForm = () => {
@@ -316,6 +334,11 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
     setEndsAt('');
     setPriority(1);
     setWeight(100);
+    setCpmCents(0);
+    setDailyBudgetCents(0);
+    setFrequencyCap(0);
+    setFrequencyWindowHours(24);
+    setAudienceSegmentId('');
   };
 
   const handleSourceChange = (next: AdSourceType) => {
@@ -732,6 +755,85 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                   Direct advertiser campaigns are provisioned by an AdControl administrator.
                 </p>
               )}
+            </div>
+
+            {sourceType === 'direct' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Advertiser CPM (cents per 1,000 impressions)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={cpmCents}
+                  onChange={(e) => setCpmCents(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  The publisher revenue share is calculated from direct impressions × this CPM × the plan share.
+                </p>
+              </div>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Daily budget (cents)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={dailyBudgetCents}
+                  onChange={(e) => setDailyBudgetCents(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">0 disables the daily budget. Spend is estimated from same-day impressions × CPM.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Audience segment
+                </label>
+                <select
+                  value={audienceSegmentId}
+                  onChange={(e) => setAudienceSegmentId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Everyone</option>
+                  {segments.filter((segment) => segment.site_id === formSiteId && segment.status === 'active').map((segment) => (
+                    <option key={segment.id} value={segment.id}>{segment.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Impression frequency cap
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={frequencyCap}
+                  onChange={(e) => setFrequencyCap(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">0 disables the cap. Enforced by the browser SDK per campaign.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Frequency window (hours)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={8760}
+                  step={1}
+                  value={frequencyWindowHours}
+                  onChange={(e) => setFrequencyWindowHours(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
 
             {sourceType === 'affiliate' && (

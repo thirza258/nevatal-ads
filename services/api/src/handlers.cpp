@@ -670,6 +670,18 @@ bool validate_campaign(Campaign& campaign, std::string& err) {
         err = "weight must be between 1 and 10000";
         return false;
     }
+    if (campaign.daily_budget_cents < 0) {
+        err = "daily_budget_cents cannot be negative";
+        return false;
+    }
+    if (campaign.frequency_cap_impressions < 0) {
+        err = "frequency_cap_impressions cannot be negative";
+        return false;
+    }
+    if (campaign.frequency_cap_window_hours < 1 || campaign.frequency_cap_window_hours > 8760) {
+        err = "frequency_cap_window_hours must be between 1 and 8760";
+        return false;
+    }
 
     std::string normalized_start;
     std::string normalized_end;
@@ -939,6 +951,57 @@ std::string minimized_referrer(const std::string& raw) {
     return value;
 }
 
+bool audience_matches(const AudienceSegment& segment, const httplib::Request& req,
+                      const std::string& device) {
+    if (segment.status != "active") return false;
+    nlohmann::json rules;
+    try {
+        rules = nlohmann::json::parse(segment.rules.empty() ? "{}" : segment.rules);
+    } catch (...) {
+        return false;
+    }
+    if (!rules.is_object()) return false;
+    if (rules.empty()) return true;
+
+    auto matches_value = [](const nlohmann::json& rule, const std::string& actual) {
+        const std::string lower_actual = utils::to_lower_copy(utils::trim_copy(actual));
+        if (rule.is_string()) {
+            return lower_actual == utils::to_lower_copy(utils::trim_copy(rule.get<std::string>()));
+        }
+        if (rule.is_array()) {
+            for (const auto& item : rule) {
+                if (item.is_string() &&
+                    lower_actual == utils::to_lower_copy(utils::trim_copy(item.get<std::string>()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    for (auto it = rules.begin(); it != rules.end(); ++it) {
+        const std::string key = it.key();
+        if (key == "utm_source" || key == "utm_medium" || key == "utm_campaign" ||
+            key == "utm_term" || key == "utm_content") {
+            const std::string actual = req.has_param(key) ? req.get_param_value(key) : "";
+            if (!matches_value(it.value(), actual)) return false;
+        } else if (key == "device") {
+            if (!matches_value(it.value(), device)) return false;
+        } else if (key == "referrer_contains") {
+            const std::string referrer = req.has_header("Referer")
+                ? utils::to_lower_copy(req.get_header_value("Referer")) : "";
+            if (it.value().is_string()) {
+                const std::string needle = utils::to_lower_copy(it.value().get<std::string>());
+                if (needle.empty() || referrer.find(needle) == std::string::npos) return false;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string classify_user_agent(const std::string& ua) {
     std::string lower = utils::to_lower_copy(ua);
     if (lower.find("bot") != std::string::npos ||
@@ -1133,6 +1196,28 @@ bool validate_learning_course_fields(LearningCourse& course, std::string& err) {
         err = "topic_id is required";
         return false;
     }
+    course.access_type = utils::to_lower_copy(utils::trim_copy(course.access_type));
+    course.currency = utils::to_upper_copy(utils::trim_copy(course.currency));
+    if (course.access_type != "free" && course.access_type != "paid") {
+        err = "access_type must be free or paid";
+        return false;
+    }
+    if (course.price_cents < 0 || course.price_cents > 100000000) {
+        err = "price_cents must be between 0 and 100000000";
+        return false;
+    }
+    static const std::regex currency_re(R"(^[A-Z]{3}$)");
+    if (!std::regex_match(course.currency, currency_re)) {
+        err = "currency must be a three-letter ISO code";
+        return false;
+    }
+    if (course.access_type == "paid" && course.price_cents <= 0) {
+        err = "paid courses require a price greater than zero";
+        return false;
+    }
+    if (course.access_type == "free") {
+        course.price_cents = 0;
+    }
     return true;
 }
 
@@ -1198,6 +1283,9 @@ nlohmann::json learning_course_public_json(const LearningCourse& course) {
         {"level", course.level},
         {"duration_minutes", course.duration_minutes},
         {"outcomes", course.outcomes},
+        {"price_cents", course.price_cents},
+        {"currency", course.currency},
+        {"access_type", course.access_type},
         {"version", course.version},
         {"published_at", course.published_at},
         {"last_reviewed_at", course.last_reviewed_at},
@@ -1342,6 +1430,102 @@ nlohmann::json learning_enrollment_summary_json(Database& db, const Enrollment& 
         j["course"] = nullptr;
     }
     return j;
+}
+
+// Billing is available to platform administrators and publisher accounts. Analysts
+// retain read-only analytics access but cannot see commercial terms.
+bool billing_role_allowed(const User& user) {
+    return user.role == "admin" || user.role == "publisher";
+}
+
+// Administrators may omit publisher_id to mean "all publishers"; publishers are
+// always pinned to their own tenant even if they try to supply a different id.
+bool resolve_billing_scope(Database& db, const User& user, const httplib::Request& req,
+                           std::optional<std::string>& publisher_scope,
+                           httplib::Response& res) {
+    (void)db;
+    if (!billing_role_allowed(user)) {
+        json_error(res, 403, "Forbidden: billing access requires an administrator or publisher role");
+        return false;
+    }
+    if (is_admin_user(user)) {
+        if (req.has_param("publisher_id")) {
+            publisher_scope = req.get_param_value("publisher_id");
+        }
+        return true;
+    }
+    if (user.publisher_id.empty()) {
+        json_error(res, 403, "Forbidden: account is not linked to a publisher");
+        return false;
+    }
+    if (req.has_param("publisher_id") &&
+        req.get_param_value("publisher_id") != user.publisher_id) {
+        json_error(res, 403, "Forbidden: publisher scope cannot be changed");
+        return false;
+    }
+    publisher_scope = user.publisher_id;
+    return true;
+}
+
+bool resolve_billing_publisher(Database& db, const User& user, const httplib::Request& req,
+                               std::string& publisher_id, httplib::Response& res) {
+    std::optional<std::string> scope;
+    if (!resolve_billing_scope(db, user, req, scope, res)) return false;
+    if (!scope || scope->empty()) {
+        json_error(res, 400, "publisher_id is required");
+        return false;
+    }
+    publisher_id = *scope;
+    return true;
+}
+
+bool resolve_billing_period(const httplib::Request& req, httplib::Response& res,
+                            std::string& period_start, std::string& period_end) {
+    const std::time_t now = utils::utc_now_epoch();
+    period_start = utils::month_start_iso(now);
+    period_end = utils::month_end_iso(now);
+
+    const bool has_start = req.has_param("period_start");
+    const bool has_end = req.has_param("period_end");
+    if (has_start != has_end) {
+        json_error(res, 400, "period_start and period_end must be provided together");
+        return false;
+    }
+    if (has_start) {
+        const std::string normalized_start =
+            utils::normalize_iso8601_utc(req.get_param_value("period_start"));
+        const std::string normalized_end =
+            utils::normalize_iso8601_utc(req.get_param_value("period_end"));
+        if (normalized_start.empty() || normalized_end.empty()) {
+            json_error(res, 400, "period_start and period_end must be UTC ISO-8601 timestamps");
+            return false;
+        }
+        period_start = normalized_start;
+        period_end = normalized_end;
+    }
+
+    std::time_t start_epoch = 0;
+    std::time_t end_epoch = 0;
+    if (!utils::parse_iso8601_utc(period_start, start_epoch) ||
+        !utils::parse_iso8601_utc(period_end, end_epoch) ||
+        start_epoch >= end_epoch) {
+        json_error(res, 400, "period_start must be before period_end");
+        return false;
+    }
+    return true;
+}
+
+bool can_view_billing_invoice(const User& user, const BillingInvoice& invoice) {
+    if (is_admin_user(user)) return true;
+    return user.role == "publisher" && !user.publisher_id.empty() &&
+           invoice.publisher_id == user.publisher_id;
+}
+
+std::string invoice_period_label(const std::string& period_start) {
+    // Keep invoice descriptions readable without pulling in locale-specific
+    // formatting; the raw period is still stored on the invoice itself.
+    if (period_start.size() >= 7) return period_start.substr(0, 7);
+    return "current period";
 }
 
 } // namespace
@@ -1612,36 +1796,185 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
 
         const std::string now_iso = utils::get_current_iso8601();
         db_->advance_campaign_states(now_iso);
-        auto eligible = db_->get_eligible_campaigns_for_delivery(site.id, now_iso);
-
+        bool delivery_capped = false;
+        if (!site.publisher_id.empty()) {
+            const std::time_t now_epoch = utils::utc_now_epoch();
+            auto usage = db_->get_publisher_usage(site.publisher_id,
+                                                  utils::month_start_iso(now_epoch),
+                                                  utils::month_end_iso(now_epoch));
+            delivery_capped = usage.hard_cap && usage.included_impressions >= 0 &&
+                              usage.impressions >= usage.included_impressions;
+        }
+        struct SelectedCampaign {
+            Placement placement;
+            Campaign campaign;
+            std::optional<AffiliateOffer> offer;
+            std::string experiment_id;
+            std::string experiment_variant_id;
+        };
         struct ClickTarget {
             std::string placement_key;
             std::string campaign_id;
             std::string path_prefix;
         };
 
-        nlohmann::json placements_map = nlohmann::json::object();
-        std::vector<ClickTarget> click_targets;
-        for (const auto& pair : eligible) {
-            const auto& placement = pair.first;
-            const auto& campaign = pair.second;
-            if (!source_allowed_for_site(site, campaign.source_type)) continue;
+        std::vector<SelectedCampaign> selected;
+        bool experiments_running = false;
+        if (!delivery_capped) {
+            const auto candidates = db_->get_delivery_campaign_candidates(site.id, now_iso);
+            std::string visitor_id;
+            if (req.has_param("visitor_id")) {
+                visitor_id = req.get_param_value("visitor_id");
+                static const std::regex visitor_re(R"(^[A-Za-z0-9._:\-]{8,128}$)");
+                if (!std::regex_match(visitor_id, visitor_re)) visitor_id.clear();
+            }
+            const std::string device = classify_user_agent(
+                req.has_header("User-Agent") ? req.get_header_value("User-Agent") : "");
+            const std::time_t now_epoch = utils::utc_now_epoch();
+            const std::string rotation_bucket = std::to_string(now_epoch / 30);
+            const std::time_t day_start = now_epoch - (now_epoch % 86400);
+            const std::string day_start_iso = utils::iso8601_from_epoch(day_start);
+            const std::string day_end_iso = utils::iso8601_from_epoch(day_start + 86400);
 
-            std::optional<AffiliateOffer> offer;
-            if (campaign.source_type == "affiliate") {
-                if (campaign.affiliate_offer_id.empty()) continue;
-                offer = db_->get_affiliate_offer(campaign.affiliate_offer_id);
-                if (!offer || offer->status != "active" ||
-                    offer->validation_status == "rejected" ||
-                    offer->publisher_id != site.publisher_id ||
-                    site.publisher_id.empty()) {
+            std::map<std::string, Experiment> active_experiments;
+            for (const auto& experiment : db_->list_experiments(site.id, std::nullopt, "running")) {
+                if (!experiment.variants.empty()) {
+                    active_experiments[experiment.placement_id] = experiment;
+                    experiments_running = true;
+                }
+            }
+
+            std::map<std::string, std::vector<std::pair<Placement, Campaign>>> groups;
+            std::map<std::string, std::vector<AffiliateOffer>> offers_by_campaign;
+            std::map<std::string, std::optional<AudienceSegment>> segment_cache;
+            for (const auto& pair : candidates) {
+                const auto& placement = pair.first;
+                const auto& campaign = pair.second;
+                if (!source_allowed_for_site(site, campaign.source_type)) continue;
+
+                if (campaign.source_type == "affiliate") {
+                    if (campaign.affiliate_offer_id.empty()) continue;
+                    auto offer = db_->get_affiliate_offer(campaign.affiliate_offer_id);
+                    if (!offer || offer->status != "active" ||
+                        offer->validation_status == "rejected" ||
+                        offer->publisher_id != site.publisher_id ||
+                        site.publisher_id.empty()) {
+                        continue;
+                    }
+                    std::string reason;
+                    if (!validate_affiliate_url(offer->affiliate_url, reason)) continue;
+                    offers_by_campaign[campaign.id].push_back(*offer);
+                } else if (!utils::is_safe_url(campaign.destination_url)) {
                     continue;
                 }
-                std::string reason;
-                if (!validate_affiliate_url(offer->affiliate_url, reason)) continue;
-            } else if (!utils::is_safe_url(campaign.destination_url)) {
-                continue;
+
+                if (!campaign.audience_segment_id.empty()) {
+                    if (!segment_cache.count(campaign.audience_segment_id)) {
+                        segment_cache[campaign.audience_segment_id] =
+                            db_->get_audience_segment(campaign.audience_segment_id);
+                    }
+                    const auto& segment = segment_cache[campaign.audience_segment_id];
+                    if (!segment || segment->site_id != site.id ||
+                        !audience_matches(*segment, req, device)) {
+                        continue;
+                    }
+                }
+
+                if (campaign.daily_budget_cents > 0 && campaign.cpm_cents > 0) {
+                    const long long impressions = db_->get_campaign_impressions_between(
+                        campaign.id, day_start_iso, day_end_iso);
+                    const long long spend_cents = impressions * campaign.cpm_cents / 1000;
+                    if (spend_cents >= campaign.daily_budget_cents) continue;
+                }
+                groups[placement.id].push_back({placement, campaign});
             }
+
+            auto pick_weighted = [&](const std::vector<std::pair<Campaign, long long>>& pool,
+                                     const std::string& seed) -> std::optional<Campaign> {
+                long long total = 0;
+                for (const auto& entry : pool) total += std::max(1LL, entry.second);
+                if (pool.empty() || total <= 0) return std::nullopt;
+                const std::string digest = utils::hmac_sha256_hex(secret_key_, seed);
+                unsigned long long bucket = 0;
+                try {
+                    bucket = std::stoull(digest.substr(0, 16), nullptr, 16);
+                } catch (...) {
+                    bucket = 0;
+                }
+                bucket %= static_cast<unsigned long long>(total);
+                for (const auto& entry : pool) {
+                    const long long weight = std::max(1LL, entry.second);
+                    if (bucket < static_cast<unsigned long long>(weight)) return entry.first;
+                    bucket -= static_cast<unsigned long long>(weight);
+                }
+                return pool.back().first;
+            };
+
+            for (const auto& group : groups) {
+                const auto& placement = group.second.front().first;
+                std::vector<Campaign> available;
+                for (const auto& entry : group.second) available.push_back(entry.second);
+
+                std::optional<Campaign> chosen;
+                std::string experiment_id;
+                std::string experiment_variant_id;
+                auto experiment_it = active_experiments.find(placement.id);
+                if (experiment_it != active_experiments.end()) {
+                    std::vector<std::pair<Campaign, long long>> variant_pool;
+                    std::map<std::string, std::string> variant_ids;
+                    for (const auto& variant : experiment_it->second.variants) {
+                        auto match = std::find_if(available.begin(), available.end(),
+                            [&](const Campaign& campaign) { return campaign.id == variant.campaign_id; });
+                        if (match == available.end()) continue;
+                        variant_pool.push_back({*match, variant.weight});
+                        variant_ids[variant.campaign_id] = variant.id;
+                    }
+                    if (!variant_pool.empty()) {
+                        const std::string assignment_seed = "experiment:" +
+                            experiment_it->second.id + ":" +
+                            (visitor_id.empty() ? rotation_bucket : visitor_id);
+                        chosen = pick_weighted(variant_pool, assignment_seed);
+                        if (chosen) {
+                            experiment_id = experiment_it->second.id;
+                            experiment_variant_id = variant_ids[chosen->id];
+                        }
+                    }
+                }
+                if (!chosen) {
+                    int highest_priority = -1;
+                    for (const auto& campaign : available) {
+                        highest_priority = std::max(highest_priority, campaign.priority);
+                    }
+                    std::vector<std::pair<Campaign, long long>> priority_pool;
+                    for (const auto& campaign : available) {
+                        if (campaign.priority == highest_priority) {
+                            priority_pool.push_back({campaign, campaign.weight});
+                        }
+                    }
+                    chosen = pick_weighted(priority_pool,
+                        "rotation:" + placement.id + ":" + rotation_bucket);
+                }
+                if (!chosen) continue;
+
+                SelectedCampaign item;
+                item.placement = placement;
+                item.campaign = *chosen;
+                item.experiment_id = experiment_id;
+                item.experiment_variant_id = experiment_variant_id;
+                auto offer_it = offers_by_campaign.find(chosen->id);
+                if (offer_it != offers_by_campaign.end() && !offer_it->second.empty()) {
+                    item.offer = offer_it->second.front();
+                }
+                selected.push_back(item);
+            }
+        }
+
+        nlohmann::json placements_map = nlohmann::json::object();
+        std::vector<ClickTarget> click_targets;
+        for (const auto& selected_campaign : selected) {
+            const auto& placement = selected_campaign.placement;
+            const auto& campaign = selected_campaign.campaign;
+            const auto& offer = selected_campaign.offer;
 
             std::string image_url = utils::is_safe_optional_url(campaign.image_url) ? campaign.image_url : "";
             std::string title = campaign.title;
@@ -1683,7 +2016,12 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
                     offer ? &*offer : nullptr, site, placement)},
                 {"merchant_name", merchant},
                 {"price_text", price_text},
-                {"currency", currency}
+                {"currency", currency},
+                {"frequency_cap_impressions", campaign.frequency_cap_impressions},
+                {"frequency_cap_window_hours", campaign.frequency_cap_window_hours},
+                {"audience_segment_id", campaign.audience_segment_id},
+                {"experiment_id", selected_campaign.experiment_id},
+                {"experiment_variant_id", selected_campaign.experiment_variant_id}
             };
             placements_map[placement.placement_key] = item;
             click_targets.push_back({placement.placement_key, campaign.id,
@@ -1718,7 +2056,12 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
                 {"disclosure_text", ""},
                 {"merchant_name", ""},
                 {"price_text", ""},
-                {"currency", ""}
+                {"currency", ""},
+                {"frequency_cap_impressions", 0},
+                {"frequency_cap_window_hours", 24},
+                {"audience_segment_id", ""},
+                {"experiment_id", ""},
+                {"experiment_variant_id", ""}
             };
         }
 
@@ -1749,7 +2092,8 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
 
         if (req.has_header("If-None-Match") && req.get_header_value("If-None-Match") == etag) {
             res.status = 304;
-            res.set_header("Cache-Control", "public, max-age=30");
+            res.set_header("Cache-Control", experiments_running
+                ? "private, max-age=30" : "public, max-age=30");
             return;
         }
 
@@ -1758,7 +2102,9 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
                 target.path_prefix + create_click_token(target.campaign_id);
         }
 
-        res.set_header("Cache-Control", "public, max-age=30, stale-while-revalidate=30");
+        res.set_header("Cache-Control", experiments_running
+            ? "private, max-age=30"
+            : "public, max-age=30, stale-while-revalidate=30");
         res.set_content(config.dump(), "application/json");
     });
 
@@ -1861,6 +2207,24 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
                       campaign_opt->source_type) == placement_opt->allowed_source_types.end()) {
             json_error(res, 400, "Campaign does not belong to this site and placement");
             return;
+        }
+
+        // A hard-capped plan stops counting (and serving) new impressions once
+        // its allowance is consumed. Overage-enabled plans intentionally keep
+        // recording so the next invoice can bill the excess.
+        if (!site_opt->publisher_id.empty()) {
+            const std::time_t now_epoch = utils::utc_now_epoch();
+            auto usage = db_->get_publisher_usage(site_opt->publisher_id,
+                                                  utils::month_start_iso(now_epoch),
+                                                  utils::month_end_iso(now_epoch));
+            if (usage.hard_cap && usage.included_impressions >= 0 &&
+                usage.impressions >= usage.included_impressions) {
+                res.set_content(nlohmann::json({
+                    {"status", "quota_exceeded"},
+                    {"event_id", event_id}
+                }).dump(), "application/json");
+                return;
+            }
         }
 
         AdEvent ev;
@@ -3111,7 +3475,12 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
             !read_string(body, "starts_at", c.starts_at, err) ||
             !read_string(body, "ends_at", c.ends_at, err) ||
             !read_int(body, "priority", c.priority, err) ||
-            !read_int(body, "weight", c.weight, err)) {
+            !read_int(body, "weight", c.weight, err) ||
+            !read_int(body, "cpm_cents", c.cpm_cents, err) ||
+            !read_int(body, "daily_budget_cents", c.daily_budget_cents, err) ||
+            !read_int(body, "frequency_cap_impressions", c.frequency_cap_impressions, err) ||
+            !read_int(body, "frequency_cap_window_hours", c.frequency_cap_window_hours, err) ||
+            !read_string(body, "audience_segment_id", c.audience_segment_id, err)) {
             json_error(res, 400, err);
             return;
         }
@@ -3119,6 +3488,10 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
         if (c.source_type.empty()) c.source_type = "house";
         if (c.priority == 0) c.priority = 1;
         if (c.weight == 0) c.weight = 100;
+        if (c.cpm_cents < 0) {
+            json_error(res, 400, "cpm_cents cannot be negative");
+            return;
+        }
 
         auto site = db_->get_site(c.site_id);
         if (!site || !can_access_site(*user, *site)) {
@@ -3131,6 +3504,25 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
             return;
         }
         if (c.format.empty()) c.format = placement->format;
+
+        // Publisher plans cap the number of campaigns (archived campaigns do not
+        // count). Administrators can still create house inventory as needed.
+        if (user->role == "publisher" && !user->publisher_id.empty()) {
+            const std::time_t now_epoch = utils::utc_now_epoch();
+            auto usage = db_->get_publisher_usage(user->publisher_id,
+                                                  utils::month_start_iso(now_epoch),
+                                                  utils::month_end_iso(now_epoch));
+            if (usage.campaign_quota_exceeded) {
+                res.status = 402;
+                res.set_content(nlohmann::json({
+                    {"error", "Campaign limit reached for your current plan. Upgrade to add more campaigns."},
+                    {"campaign_quota_exceeded", true},
+                    {"campaigns", usage.campaigns},
+                    {"included_campaigns", usage.included_campaigns}
+                }).dump(), "application/json");
+                return;
+            }
+        }
 
         std::optional<AffiliateOffer> offer;
         if (c.source_type == "affiliate") {
@@ -3147,6 +3539,13 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
         if (!apply_campaign_source(c, *site, *placement, *user, offer, err)) {
             json_error(res, 400, err);
             return;
+        }
+        if (!c.audience_segment_id.empty()) {
+            auto segment = db_->get_audience_segment(c.audience_segment_id);
+            if (!segment || segment->site_id != c.site_id) {
+                json_error(res, 400, "audience_segment_id must belong to the selected site");
+                return;
+            }
         }
         if (!validate_campaign(c, err)) {
             json_error(res, 400, err);
@@ -3215,8 +3614,17 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
             !read_string(body, "starts_at", c.starts_at, err) ||
             !read_string(body, "ends_at", c.ends_at, err) ||
             !read_int(body, "priority", c.priority, err) ||
-            !read_int(body, "weight", c.weight, err)) {
+            !read_int(body, "weight", c.weight, err) ||
+            !read_int(body, "cpm_cents", c.cpm_cents, err) ||
+            !read_int(body, "daily_budget_cents", c.daily_budget_cents, err) ||
+            !read_int(body, "frequency_cap_impressions", c.frequency_cap_impressions, err) ||
+            !read_int(body, "frequency_cap_window_hours", c.frequency_cap_window_hours, err) ||
+            !read_string(body, "audience_segment_id", c.audience_segment_id, err)) {
             json_error(res, 400, err);
+            return;
+        }
+        if (c.cpm_cents < 0) {
+            json_error(res, 400, "cpm_cents cannot be negative");
             return;
         }
 
@@ -3241,6 +3649,13 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
         if (!apply_campaign_source(c, *site, *placement, *user, offer, err)) {
             json_error(res, 400, err);
             return;
+        }
+        if (!c.audience_segment_id.empty()) {
+            auto segment = db_->get_audience_segment(c.audience_segment_id);
+            if (!segment || segment->site_id != c.site_id) {
+                json_error(res, 400, "audience_segment_id must belong to this campaign's site");
+                return;
+            }
         }
         if (!validate_campaign(c, err)) {
             json_error(res, 400, err);
@@ -4078,6 +4493,923 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
     });
 
     // ==========================================
+    // Billing and monetization
+    // ==========================================
+    svr.Get("/api/v1/billing/plans", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate(req, res);
+        if (!user) return;
+        if (!billing_role_allowed(*user)) {
+            json_error(res, 403, "Forbidden: billing access requires an administrator or publisher role");
+            return;
+        }
+        const bool active_only = !req.has_param("include_archived");
+        nlohmann::json rows = nlohmann::json::array();
+        for (const auto& plan : db_->list_billing_plans(active_only)) {
+            rows.push_back(plan.to_json());
+        }
+        res.set_content(nlohmann::json({{"plans", rows}}).dump(), "application/json");
+    });
+
+    svr.Patch(R"(/api/v1/billing/plans/([^/]+))", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        auto plan_opt = db_->get_billing_plan(req.matches[1]);
+        if (!plan_opt) {
+            json_error(res, 404, "Plan not found");
+            return;
+        }
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body, 32 * 1024)) return;
+
+        BillingPlan plan = *plan_opt;
+        std::string err;
+        if (!read_string(body, "name", plan.name, err) ||
+            !read_string(body, "description", plan.description, err) ||
+            !read_string(body, "currency", plan.currency, err) ||
+            !read_string(body, "billing_interval", plan.billing_interval, err) ||
+            !read_string(body, "status", plan.status, err) ||
+            !read_int(body, "price_cents", plan.price_cents, err) ||
+            !read_int(body, "included_campaigns", plan.included_campaigns, err) ||
+            !read_int(body, "included_impressions", plan.included_impressions, err) ||
+            !read_int(body, "overage_per_1000_impressions_cents",
+                      plan.overage_per_1000_impressions_cents, err) ||
+            !read_int(body, "revenue_share_percent", plan.revenue_share_percent, err) ||
+            !read_int(body, "sort_order", plan.sort_order, err)) {
+            json_error(res, 400, err);
+            return;
+        }
+        if (body.contains("features") &&
+            !read_string_array(body, "features", plan.features, err, 30)) {
+            json_error(res, 400, err);
+            return;
+        }
+
+        plan.name = utils::trim_copy(plan.name);
+        plan.description = utils::trim_copy(plan.description);
+        plan.currency = utils::to_upper_copy(utils::trim_copy(plan.currency));
+        plan.billing_interval = utils::to_lower_copy(utils::trim_copy(plan.billing_interval));
+        plan.status = utils::to_lower_copy(utils::trim_copy(plan.status));
+        static const std::regex currency_re(R"(^[A-Z]{3}$)");
+        if (plan.name.empty() || plan.name.size() > 120) {
+            json_error(res, 400, "name is required (max 120 characters)");
+            return;
+        }
+        if (plan.description.size() > 2000) {
+            json_error(res, 400, "description must be 2000 characters or fewer");
+            return;
+        }
+        if (!std::regex_match(plan.currency, currency_re)) {
+            json_error(res, 400, "currency must be a three-letter ISO code");
+            return;
+        }
+        if (plan.billing_interval != "month" && plan.billing_interval != "year") {
+            json_error(res, 400, "billing_interval must be month or year");
+            return;
+        }
+        if (plan.price_cents < 0 || plan.price_cents > 100000000) {
+            json_error(res, 400, "price_cents must be between 0 and 100000000");
+            return;
+        }
+        if (plan.included_campaigns < -1 || plan.included_impressions < -1) {
+            json_error(res, 400, "included limits must be -1 (unlimited) or greater");
+            return;
+        }
+        if (plan.overage_per_1000_impressions_cents < 0) {
+            json_error(res, 400, "overage rate cannot be negative");
+            return;
+        }
+        if (plan.revenue_share_percent < 0 || plan.revenue_share_percent > 100) {
+            json_error(res, 400, "revenue_share_percent must be between 0 and 100");
+            return;
+        }
+        if (plan.status != "active" && plan.status != "archived") {
+            json_error(res, 400, "status must be active or archived");
+            return;
+        }
+
+        if (!db_->update_billing_plan(plan)) {
+            json_error(res, 500, "Could not update the plan");
+            return;
+        }
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "UPDATE_BILLING_PLAN";
+        al.entity_type = "billing_plan";
+        al.entity_id = plan.id;
+        al.details = plan.to_json().dump();
+        db_->record_audit_log(al);
+
+        auto updated = db_->get_billing_plan(plan.id);
+        res.set_content(nlohmann::json({{"plan", updated ? updated->to_json() : plan.to_json()}}).dump(),
+                        "application/json");
+    });
+
+    svr.Get("/api/v1/billing/subscription", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate(req, res);
+        if (!user) return;
+        std::string publisher_id;
+        if (!resolve_billing_publisher(*db_, *user, req, publisher_id, res)) return;
+
+        std::string error;
+        auto subscription = db_->ensure_publisher_subscription(publisher_id, error);
+        if (!subscription) {
+            json_error(res, 400, error);
+            return;
+        }
+        auto plan = db_->get_billing_plan(subscription->plan_id);
+        std::string period_start = subscription->current_period_start;
+        std::string period_end = subscription->current_period_end;
+        if (period_start.empty() || period_end.empty()) {
+            const std::time_t now = utils::utc_now_epoch();
+            period_start = utils::month_start_iso(now);
+            period_end = utils::month_end_iso(now);
+        }
+        auto usage = db_->get_publisher_usage(publisher_id, period_start, period_end);
+        auto revenue = db_->get_publisher_revenue(publisher_id, period_start, period_end);
+        res.set_content(nlohmann::json({
+            {"subscription", subscription->to_json()},
+            {"plan", plan ? plan->to_json() : nlohmann::json(nullptr)},
+            {"usage", usage.to_json()},
+            {"revenue", revenue.to_json()}
+        }).dump(), "application/json");
+    });
+
+    svr.Get("/api/v1/billing/subscriptions", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        nlohmann::json rows = nlohmann::json::array();
+        for (const auto& subscription : db_->list_publisher_subscriptions()) {
+            nlohmann::json row = subscription.to_json();
+            auto plan = db_->get_billing_plan(subscription.plan_id);
+            row["plan"] = plan ? plan->to_json() : nlohmann::json(nullptr);
+            rows.push_back(row);
+        }
+        res.set_content(nlohmann::json({{"subscriptions", rows}}).dump(), "application/json");
+    });
+
+    svr.Put(R"(/api/v1/billing/subscriptions/([^/]+))", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body, 16 * 1024)) return;
+        std::string plan_id;
+        try {
+            plan_id = body.value("plan_id", "");
+        } catch (...) {
+            json_error(res, 400, "plan_id must be a string");
+            return;
+        }
+        const std::string publisher_id = req.matches[1];
+        auto publisher = db_->get_publisher(publisher_id);
+        if (!publisher) {
+            json_error(res, 404, "Publisher not found");
+            return;
+        }
+        std::string error;
+        if (!db_->update_publisher_subscription_plan(publisher_id, plan_id, error)) {
+            json_error(res, 400, error);
+            return;
+        }
+        auto subscription = db_->get_publisher_subscription(publisher_id);
+        auto plan = db_->get_billing_plan(plan_id);
+
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "UPDATE_PUBLISHER_SUBSCRIPTION";
+        al.entity_type = "publisher_subscription";
+        al.entity_id = subscription ? subscription->id : publisher_id;
+        al.details = nlohmann::json({{"publisher_id", publisher_id}, {"plan_id", plan_id}}).dump();
+        db_->record_audit_log(al);
+
+        res.set_content(nlohmann::json({
+            {"subscription", subscription ? subscription->to_json() : nlohmann::json(nullptr)},
+            {"plan", plan ? plan->to_json() : nlohmann::json(nullptr)}
+        }).dump(), "application/json");
+    });
+
+    svr.Post("/api/v1/billing/subscription/change", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate(req, res);
+        if (!user) return;
+        if (!billing_role_allowed(*user)) {
+            json_error(res, 403, "Forbidden: billing access requires an administrator or publisher role");
+            return;
+        }
+        if (!allow_request("billing-change:" + user->id, 20, 60)) {
+            res.set_header("Retry-After", "60");
+            json_error(res, 429, "Rate limit exceeded");
+            return;
+        }
+
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body, 16 * 1024)) return;
+        std::string plan_id;
+        std::string publisher_id;
+        try {
+            plan_id = body.value("plan_id", "");
+            publisher_id = body.value("publisher_id", "");
+        } catch (...) {
+            json_error(res, 400, "plan_id and publisher_id must be strings");
+            return;
+        }
+        if (is_admin_user(*user)) {
+            if (publisher_id.empty()) {
+                json_error(res, 400, "publisher_id is required for administrator changes");
+                return;
+            }
+        } else {
+            publisher_id = user->publisher_id;
+        }
+        if (publisher_id.empty()) {
+            json_error(res, 403, "Forbidden: account is not linked to a publisher");
+            return;
+        }
+
+        auto plan = db_->get_billing_plan(plan_id);
+        if (!plan || plan->status != "active") {
+            json_error(res, 400, "Plan not found or inactive");
+            return;
+        }
+        std::string error;
+        auto current = db_->ensure_publisher_subscription(publisher_id, error);
+        if (!current) {
+            json_error(res, 400, error);
+            return;
+        }
+        if (current->plan_id == plan_id) {
+            json_error(res, 409, "This publisher is already on that plan");
+            return;
+        }
+        if (!db_->update_publisher_subscription_plan(publisher_id, plan_id, error)) {
+            json_error(res, 400, error);
+            return;
+        }
+
+        auto subscription = db_->get_publisher_subscription(publisher_id);
+        nlohmann::json invoice_json = nullptr;
+        if (plan->price_cents > 0) {
+            const std::string period_start = subscription ? subscription->current_period_start : "";
+            const std::string period_end = subscription ? subscription->current_period_end : "";
+            auto existing = db_->find_billing_invoice(publisher_id, "", "subscription",
+                                                      period_start, period_end, true);
+            if (existing) {
+                invoice_json = existing->to_json();
+            } else {
+                BillingInvoice invoice;
+                invoice.publisher_id = publisher_id;
+                invoice.context = "subscription";
+                invoice.period_start = period_start;
+                invoice.period_end = period_end;
+                invoice.currency = plan->currency;
+                invoice.notes = "Subscription plan change: " + plan->name;
+                BillingInvoiceItem item;
+                item.kind = "subscription";
+                item.description = plan->name + " plan (" +
+                                   invoice_period_label(period_start) + ")";
+                item.quantity = 1;
+                item.unit_amount_cents = plan->price_cents;
+                item.amount_cents = plan->price_cents;
+                invoice.items.push_back(item);
+                if (!db_->create_billing_invoice(invoice, error)) {
+                    json_error(res, 500, error);
+                    return;
+                }
+                invoice_json = invoice.to_json();
+            }
+        }
+
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "CHANGE_PUBLISHER_PLAN";
+        al.entity_type = "publisher_subscription";
+        al.entity_id = subscription ? subscription->id : publisher_id;
+        al.details = nlohmann::json({
+            {"publisher_id", publisher_id},
+            {"from_plan", current->plan_id},
+            {"to_plan", plan_id}
+        }).dump();
+        db_->record_audit_log(al);
+
+        res.set_content(nlohmann::json({
+            {"subscription", subscription ? subscription->to_json() : nlohmann::json(nullptr)},
+            {"plan", plan->to_json()},
+            {"invoice", invoice_json}
+        }).dump(), "application/json");
+    });
+
+    svr.Get("/api/v1/billing/usage", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate(req, res);
+        if (!user) return;
+        std::string publisher_id;
+        if (!resolve_billing_publisher(*db_, *user, req, publisher_id, res)) return;
+        std::string period_start;
+        std::string period_end;
+        if (!resolve_billing_period(req, res, period_start, period_end)) return;
+
+        auto usage = db_->get_publisher_usage(publisher_id, period_start, period_end);
+        res.set_content(usage.to_json().dump(), "application/json");
+    });
+
+    svr.Get("/api/v1/billing/invoices", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate(req, res);
+        if (!user) return;
+        std::optional<std::string> publisher_scope;
+        if (!resolve_billing_scope(*db_, *user, req, publisher_scope, res)) return;
+
+        std::optional<std::string> context;
+        if (req.has_param("context")) {
+            context = utils::to_lower_copy(req.get_param_value("context"));
+            if (*context != "subscription" && *context != "course" && *context != "manual") {
+                json_error(res, 400, "context must be subscription, course, or manual");
+                return;
+            }
+        }
+        std::optional<std::string> status;
+        if (req.has_param("status")) {
+            status = utils::to_lower_copy(req.get_param_value("status"));
+            if (*status != "open" && *status != "partially_paid" && *status != "paid" &&
+                *status != "overdue" && *status != "void") {
+                json_error(res, 400, "status filter is invalid");
+                return;
+            }
+        }
+        std::optional<std::string> user_filter;
+        if (is_admin_user(*user) && req.has_param("user_id")) {
+            user_filter = req.get_param_value("user_id");
+        }
+        int limit = 100;
+        int offset = 0;
+        if (req.has_param("limit") && !parse_int(req.get_param_value("limit"), limit)) {
+            json_error(res, 400, "limit must be an integer");
+            return;
+        }
+        if (req.has_param("offset") && !parse_int(req.get_param_value("offset"), offset)) {
+            json_error(res, 400, "offset must be an integer");
+            return;
+        }
+        if (limit < 1) limit = 1;
+        if (limit > 200) limit = 200;
+        if (offset < 0) offset = 0;
+
+        auto invoices = db_->list_billing_invoices(publisher_scope, user_filter, context, status,
+                                                   limit, offset);
+        nlohmann::json rows = nlohmann::json::array();
+        for (const auto& invoice : invoices) rows.push_back(invoice.to_json());
+        res.set_content(nlohmann::json({{"invoices", rows}}).dump(), "application/json");
+    });
+
+    svr.Post("/api/v1/billing/invoices", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body, 128 * 1024)) return;
+        BillingInvoice invoice;
+        std::string err;
+        if (!read_string(body, "publisher_id", invoice.publisher_id, err) ||
+            !read_string(body, "user_id", invoice.user_id, err) ||
+            !read_string(body, "context", invoice.context, err) ||
+            !read_string(body, "period_start", invoice.period_start, err) ||
+            !read_string(body, "period_end", invoice.period_end, err) ||
+            !read_string(body, "currency", invoice.currency, err) ||
+            !read_string(body, "due_at", invoice.due_at, err) ||
+            !read_string(body, "notes", invoice.notes, err) ||
+            !read_int(body, "tax_cents", invoice.tax_cents, err)) {
+            json_error(res, 400, err);
+            return;
+        }
+        if (invoice.publisher_id.empty() && invoice.user_id.empty()) {
+            json_error(res, 400, "publisher_id or user_id is required");
+            return;
+        }
+        if (!invoice.publisher_id.empty() && !db_->get_publisher(invoice.publisher_id)) {
+            json_error(res, 400, "publisher_id does not reference an existing publisher");
+            return;
+        }
+        if (!invoice.user_id.empty() && !db_->get_user_by_id(invoice.user_id)) {
+            json_error(res, 400, "user_id does not reference an existing user");
+            return;
+        }
+        if (invoice.context.empty()) invoice.context = "manual";
+        if (invoice.context != "subscription" && invoice.context != "course" &&
+            invoice.context != "manual") {
+            json_error(res, 400, "context must be subscription, course, or manual");
+            return;
+        }
+        if (invoice.tax_cents < 0) {
+            json_error(res, 400, "tax_cents cannot be negative");
+            return;
+        }
+        if (!invoice.due_at.empty() && utils::normalize_iso8601_utc(invoice.due_at).empty()) {
+            json_error(res, 400, "due_at must be a UTC ISO-8601 timestamp");
+            return;
+        }
+        if (!body.contains("items") || !body["items"].is_array() ||
+            body["items"].empty() || body["items"].size() > 50) {
+            json_error(res, 400, "items must be an array of 1-50 line items");
+            return;
+        }
+        for (const auto& raw : body["items"]) {
+            if (!raw.is_object()) {
+                json_error(res, 400, "each item must be an object");
+                return;
+            }
+            BillingInvoiceItem item;
+            try {
+                item.kind = utils::to_lower_copy(utils::trim_copy(raw.value("kind", "adjustment")));
+                item.description = utils::trim_copy(raw.value("description", ""));
+                item.quantity = raw.value("quantity", 1);
+                item.unit_amount_cents = raw.value("unit_amount_cents", 0);
+                item.course_id = raw.value("course_id", "");
+                item.metadata = raw.value("metadata", nlohmann::json::object()).dump();
+            } catch (...) {
+                json_error(res, 400, "invalid invoice item");
+                return;
+            }
+            if (item.kind != "subscription" && item.kind != "overage" &&
+                item.kind != "course" && item.kind != "adjustment") {
+                json_error(res, 400, "item kind must be subscription, overage, course, or adjustment");
+                return;
+            }
+            if (item.description.empty() || item.description.size() > 500) {
+                json_error(res, 400, "each item needs a description of 1-500 characters");
+                return;
+            }
+            if (item.quantity < 1 || item.quantity > 1000000) {
+                json_error(res, 400, "item quantity must be between 1 and 1000000");
+                return;
+            }
+            if (item.unit_amount_cents < 0 || item.unit_amount_cents > 100000000) {
+                json_error(res, 400, "item unit_amount_cents is out of range");
+                return;
+            }
+            if (!item.course_id.empty() && !db_->get_learning_course(item.course_id)) {
+                json_error(res, 400, "item course_id does not reference an existing course");
+                return;
+            }
+            if (!item.course_id.empty() && invoice.user_id.empty()) {
+                json_error(res, 400, "course items require a user_id");
+                return;
+            }
+            item.amount_cents = item.quantity * item.unit_amount_cents;
+            invoice.items.push_back(item);
+        }
+
+        std::string error;
+        if (!db_->create_billing_invoice(invoice, error)) {
+            json_error(res, 500, error);
+            return;
+        }
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "CREATE_BILLING_INVOICE";
+        al.entity_type = "billing_invoice";
+        al.entity_id = invoice.id;
+        al.details = invoice.to_json(false).dump();
+        db_->record_audit_log(al);
+
+        auto created = db_->get_billing_invoice(invoice.id);
+        res.status = 201;
+        res.set_content(nlohmann::json({{"invoice", created ? created->to_json() : invoice.to_json()}}).dump(),
+                        "application/json");
+    });
+
+    svr.Post("/api/v1/billing/invoices/usage", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body, 32 * 1024)) return;
+        std::string publisher_id;
+        std::string period_start;
+        std::string period_end;
+        try {
+            publisher_id = body.value("publisher_id", "");
+            period_start = body.value("period_start", "");
+            period_end = body.value("period_end", "");
+        } catch (...) {
+            json_error(res, 400, "publisher_id, period_start, and period_end must be strings");
+            return;
+        }
+        if (publisher_id.empty()) {
+            json_error(res, 400, "publisher_id is required");
+            return;
+        }
+        if (!db_->get_publisher(publisher_id)) {
+            json_error(res, 404, "Publisher not found");
+            return;
+        }
+        if (period_start.empty() != period_end.empty()) {
+            json_error(res, 400, "period_start and period_end must be provided together");
+            return;
+        }
+        if (period_start.empty()) {
+            const std::time_t now = utils::utc_now_epoch();
+            period_start = utils::month_start_iso(now);
+            period_end = utils::month_end_iso(now);
+        } else {
+            period_start = utils::normalize_iso8601_utc(period_start);
+            period_end = utils::normalize_iso8601_utc(period_end);
+        }
+        std::time_t start_epoch = 0;
+        std::time_t end_epoch = 0;
+        if (period_start.empty() || period_end.empty() ||
+            !utils::parse_iso8601_utc(period_start, start_epoch) ||
+            !utils::parse_iso8601_utc(period_end, end_epoch) ||
+            start_epoch >= end_epoch) {
+            json_error(res, 400, "period_start must be before period_end");
+            return;
+        }
+
+        auto existing = db_->find_billing_invoice(publisher_id, "", "subscription",
+                                                  period_start, period_end, true);
+        if (existing) {
+            res.status = 409;
+            res.set_content(nlohmann::json({
+                {"error", "An open invoice already exists for this period"},
+                {"invoice", existing->to_json()}
+            }).dump(), "application/json");
+            return;
+        }
+
+        std::string error;
+        auto subscription = db_->ensure_publisher_subscription(publisher_id, error);
+        if (!subscription) {
+            json_error(res, 400, error);
+            return;
+        }
+        auto plan = db_->get_billing_plan(subscription->plan_id);
+        if (!plan) {
+            json_error(res, 400, "Subscription plan not found");
+            return;
+        }
+        auto usage = db_->get_publisher_usage(publisher_id, period_start, period_end);
+
+        BillingInvoice invoice;
+        invoice.publisher_id = publisher_id;
+        invoice.context = "subscription";
+        invoice.period_start = period_start;
+        invoice.period_end = period_end;
+        invoice.currency = plan->currency;
+        invoice.notes = "Usage invoice for " + invoice_period_label(period_start);
+        invoice.due_at = utils::iso8601_from_epoch(utils::utc_now_epoch() + 14 * 86400);
+        if (plan->price_cents > 0) {
+            BillingInvoiceItem item;
+            item.kind = "subscription";
+            item.description = plan->name + " plan (" + invoice_period_label(period_start) + ")";
+            item.quantity = 1;
+            item.unit_amount_cents = plan->price_cents;
+            item.amount_cents = plan->price_cents;
+            invoice.items.push_back(item);
+        }
+        if (usage.overage_cents > 0) {
+            BillingInvoiceItem item;
+            item.kind = "overage";
+            item.description = "Impression overage: " +
+                std::to_string(usage.overage_impressions) + " impressions over the included allowance";
+            item.quantity = static_cast<int>((usage.overage_impressions + 999) / 1000);
+            item.unit_amount_cents = plan->overage_per_1000_impressions_cents;
+            item.amount_cents = static_cast<int>(usage.overage_cents);
+            item.metadata = nlohmann::json({
+                {"included_impressions", plan->included_impressions},
+                {"impressions", usage.impressions},
+                {"overage_impressions", usage.overage_impressions}
+            }).dump();
+            invoice.items.push_back(item);
+        }
+        if (invoice.items.empty()) {
+            json_error(res, 400, "There is nothing to invoice for this plan and period");
+            return;
+        }
+
+        if (!db_->create_billing_invoice(invoice, error)) {
+            json_error(res, 500, error);
+            return;
+        }
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "GENERATE_USAGE_INVOICE";
+        al.entity_type = "billing_invoice";
+        al.entity_id = invoice.id;
+        al.details = nlohmann::json({
+            {"publisher_id", publisher_id},
+            {"period_start", period_start},
+            {"period_end", period_end}
+        }).dump();
+        db_->record_audit_log(al);
+
+        auto created = db_->get_billing_invoice(invoice.id);
+        res.status = 201;
+        res.set_content(nlohmann::json({{"invoice", created ? created->to_json() : invoice.to_json()}}).dump(),
+                        "application/json");
+    });
+
+    svr.Get(R"(/api/v1/billing/invoices/([^/]+))", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate(req, res);
+        if (!user) return;
+        if (!billing_role_allowed(*user)) {
+            json_error(res, 403, "Forbidden: billing access requires an administrator or publisher role");
+            return;
+        }
+        auto invoice = db_->get_billing_invoice(req.matches[1]);
+        if (!invoice || !can_view_billing_invoice(*user, *invoice)) {
+            json_error(res, 404, "Invoice not found");
+            return;
+        }
+        nlohmann::json payments = nlohmann::json::array();
+        for (const auto& payment : db_->list_billing_payments(std::nullopt, std::nullopt,
+                                                              invoice->id, 200, 0)) {
+            payments.push_back(payment.to_json());
+        }
+        res.set_content(nlohmann::json({
+            {"invoice", invoice->to_json()},
+            {"payments", payments}
+        }).dump(), "application/json");
+    });
+
+    svr.Post(R"(/api/v1/billing/invoices/([^/]+)/payments)", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+
+        auto invoice = db_->get_billing_invoice(req.matches[1]);
+        if (!invoice) {
+            json_error(res, 404, "Invoice not found");
+            return;
+        }
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body, 32 * 1024)) return;
+
+        BillingPayment payment;
+        payment.invoice_id = invoice->id;
+        std::string err;
+        if (!read_string(body, "method", payment.method, err) ||
+            !read_string(body, "reference", payment.reference, err) ||
+            !read_string(body, "notes", payment.notes, err) ||
+            !read_string(body, "received_at", payment.received_at, err) ||
+            !read_string(body, "currency", payment.currency, err) ||
+            !read_int(body, "amount_cents", payment.amount_cents, err)) {
+            json_error(res, 400, err);
+            return;
+        }
+        if (payment.method.empty()) payment.method = "manual";
+        if (payment.method != "manual" && payment.method != "bank_transfer" &&
+            payment.method != "cash" && payment.method != "other") {
+            json_error(res, 400, "method must be manual, bank_transfer, cash, or other");
+            return;
+        }
+        if (payment.reference.size() > 200 || payment.notes.size() > 1000) {
+            json_error(res, 400, "reference or notes is too long");
+            return;
+        }
+        if (!payment.received_at.empty()) {
+            const std::string normalized = utils::normalize_iso8601_utc(payment.received_at);
+            if (normalized.empty()) {
+                json_error(res, 400, "received_at must be a UTC ISO-8601 timestamp");
+                return;
+            }
+            payment.received_at = normalized;
+        }
+        payment.recorded_by = user->email;
+
+        std::string error;
+        if (!db_->record_billing_payment(payment, error)) {
+            json_error(res, 400, error);
+            return;
+        }
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "RECORD_BILLING_PAYMENT";
+        al.entity_type = "billing_invoice";
+        al.entity_id = invoice->id;
+        al.details = nlohmann::json({
+            {"payment_id", payment.id},
+            {"amount_cents", payment.amount_cents},
+            {"method", payment.method}
+        }).dump();
+        db_->record_audit_log(al);
+
+        auto updated = db_->get_billing_invoice(invoice->id);
+        res.status = 201;
+        res.set_content(nlohmann::json({
+            {"payment", payment.to_json()},
+            {"invoice", updated ? updated->to_json() : invoice->to_json()}
+        }).dump(), "application/json");
+    });
+
+    svr.Post(R"(/api/v1/billing/invoices/([^/]+)/void)", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+        const std::string invoice_id = req.matches[1];
+        auto invoice = db_->get_billing_invoice(invoice_id);
+        if (!invoice) {
+            json_error(res, 404, "Invoice not found");
+            return;
+        }
+        if (!db_->void_billing_invoice(invoice_id)) {
+            json_error(res, 409, "Only open, partially paid, or overdue invoices can be voided");
+            return;
+        }
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "VOID_BILLING_INVOICE";
+        al.entity_type = "billing_invoice";
+        al.entity_id = invoice_id;
+        al.details = "{}";
+        db_->record_audit_log(al);
+
+        auto updated = db_->get_billing_invoice(invoice_id);
+        res.set_content(nlohmann::json({{"invoice", updated ? updated->to_json() : invoice->to_json()}}).dump(),
+                        "application/json");
+    });
+
+    svr.Get("/api/v1/billing/payments", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate(req, res);
+        if (!user) return;
+        std::optional<std::string> publisher_scope;
+        if (!resolve_billing_scope(*db_, *user, req, publisher_scope, res)) return;
+
+        std::optional<std::string> invoice_id;
+        if (req.has_param("invoice_id")) {
+            auto invoice = db_->get_billing_invoice(req.get_param_value("invoice_id"));
+            if (!invoice || !can_view_billing_invoice(*user, *invoice)) {
+                json_error(res, 404, "Invoice not found");
+                return;
+            }
+            invoice_id = invoice->id;
+        }
+        std::optional<std::string> user_filter;
+        if (is_admin_user(*user) && req.has_param("user_id")) {
+            user_filter = req.get_param_value("user_id");
+        }
+        int limit = 100;
+        int offset = 0;
+        if (req.has_param("limit") && !parse_int(req.get_param_value("limit"), limit)) {
+            json_error(res, 400, "limit must be an integer");
+            return;
+        }
+        if (req.has_param("offset") && !parse_int(req.get_param_value("offset"), offset)) {
+            json_error(res, 400, "offset must be an integer");
+            return;
+        }
+        if (limit < 1) limit = 1;
+        if (limit > 200) limit = 200;
+        if (offset < 0) offset = 0;
+
+        nlohmann::json rows = nlohmann::json::array();
+        for (const auto& payment : db_->list_billing_payments(publisher_scope, user_filter, invoice_id,
+                                                               limit, offset)) {
+            rows.push_back(payment.to_json());
+        }
+        res.set_content(nlohmann::json({{"payments", rows}}).dump(), "application/json");
+    });
+
+    svr.Get("/api/v1/billing/revenue", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate(req, res);
+        if (!user) return;
+        std::string publisher_id;
+        if (!resolve_billing_publisher(*db_, *user, req, publisher_id, res)) return;
+        std::string period_start;
+        std::string period_end;
+        if (!resolve_billing_period(req, res, period_start, period_end)) return;
+
+        auto revenue = db_->get_publisher_revenue(publisher_id, period_start, period_end);
+        res.set_content(revenue.to_json().dump(), "application/json");
+    });
+
+    svr.Get("/api/v1/billing/payouts", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate(req, res);
+        if (!user) return;
+        std::optional<std::string> publisher_scope;
+        if (!resolve_billing_scope(*db_, *user, req, publisher_scope, res)) return;
+        int limit = 100;
+        int offset = 0;
+        if (req.has_param("limit") && !parse_int(req.get_param_value("limit"), limit)) {
+            json_error(res, 400, "limit must be an integer");
+            return;
+        }
+        if (req.has_param("offset") && !parse_int(req.get_param_value("offset"), offset)) {
+            json_error(res, 400, "offset must be an integer");
+            return;
+        }
+        if (limit < 1) limit = 1;
+        if (limit > 200) limit = 200;
+        if (offset < 0) offset = 0;
+
+        nlohmann::json rows = nlohmann::json::array();
+        for (const auto& payout : db_->list_publisher_payouts(publisher_scope, limit, offset)) {
+            rows.push_back(payout.to_json());
+        }
+        res.set_content(nlohmann::json({{"payouts", rows}}).dump(), "application/json");
+    });
+
+    svr.Post("/api/v1/billing/payouts", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_admin(req, res);
+        if (!user) return;
+        nlohmann::json body;
+        if (!parse_json_body(req, res, body, 32 * 1024)) return;
+
+        PublisherPayout payout;
+        std::string err;
+        if (!read_string(body, "publisher_id", payout.publisher_id, err) ||
+            !read_string(body, "period_start", payout.period_start, err) ||
+            !read_string(body, "period_end", payout.period_end, err) ||
+            !read_string(body, "currency", payout.currency, err) ||
+            !read_string(body, "method", payout.method, err) ||
+            !read_string(body, "reference", payout.reference, err) ||
+            !read_string(body, "status", payout.status, err) ||
+            !read_string(body, "paid_at", payout.paid_at, err) ||
+            !read_string(body, "notes", payout.notes, err)) {
+            json_error(res, 400, err);
+            return;
+        }
+        int amount = 0;
+        if (!read_int(body, "amount_cents", amount, err)) {
+            json_error(res, 400, err);
+            return;
+        }
+        payout.amount_cents = amount;
+        if (payout.publisher_id.empty()) {
+            json_error(res, 400, "publisher_id is required");
+            return;
+        }
+        if (payout.amount_cents <= 0) {
+            json_error(res, 400, "amount_cents must be greater than zero");
+            return;
+        }
+        if (payout.status.empty()) payout.status = "paid";
+        if (payout.status != "pending" && payout.status != "paid" && payout.status != "void") {
+            json_error(res, 400, "status must be pending, paid, or void");
+            return;
+        }
+        if (!payout.period_start.empty() &&
+            utils::normalize_iso8601_utc(payout.period_start).empty()) {
+            json_error(res, 400, "period_start must be a UTC ISO-8601 timestamp");
+            return;
+        }
+        if (!payout.period_end.empty() &&
+            utils::normalize_iso8601_utc(payout.period_end).empty()) {
+            json_error(res, 400, "period_end must be a UTC ISO-8601 timestamp");
+            return;
+        }
+        if (payout.period_start.empty() != payout.period_end.empty()) {
+            json_error(res, 400, "period_start and period_end must be provided together");
+            return;
+        }
+        if (!payout.period_start.empty()) {
+            payout.period_start = utils::normalize_iso8601_utc(payout.period_start);
+            payout.period_end = utils::normalize_iso8601_utc(payout.period_end);
+        }
+        if (!payout.paid_at.empty()) {
+            const std::string normalized = utils::normalize_iso8601_utc(payout.paid_at);
+            if (normalized.empty()) {
+                json_error(res, 400, "paid_at must be a UTC ISO-8601 timestamp");
+                return;
+            }
+            payout.paid_at = normalized;
+        }
+        payout.recorded_by = user->email;
+
+        std::string error;
+        if (!db_->create_publisher_payout(payout, error)) {
+            json_error(res, 400, error);
+            return;
+        }
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "CREATE_PUBLISHER_PAYOUT";
+        al.entity_type = "publisher_payout";
+        al.entity_id = payout.id;
+        al.details = nlohmann::json({
+            {"publisher_id", payout.publisher_id},
+            {"amount_cents", payout.amount_cents},
+            {"status", payout.status}
+        }).dump();
+        db_->record_audit_log(al);
+
+        res.status = 201;
+        res.set_content(nlohmann::json({{"payout", payout.to_json()}}).dump(), "application/json");
+    });
+
+    // ==========================================
     // Audit log
     // ==========================================
     svr.Get("/api/v1/audit-log", [this](const httplib::Request& req, httplib::Response& res) {
@@ -4546,6 +5878,13 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
         std::string company;
         std::string website;
         std::string message;
+        std::string source;
+        std::string utm_source;
+        std::string utm_medium;
+        std::string utm_campaign;
+        std::string utm_term;
+        std::string utm_content;
+        std::string referrer;
         std::string honeypot;
         try {
             if (!read_field("kind", kind, true) ||
@@ -4554,6 +5893,13 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
                 !read_field("company", company) ||
                 !read_field("website", website) ||
                 !read_field("message", message) ||
+                !read_field("source", source, true) ||
+                !read_field("utm_source", utm_source) ||
+                !read_field("utm_medium", utm_medium) ||
+                !read_field("utm_campaign", utm_campaign) ||
+                !read_field("utm_term", utm_term) ||
+                !read_field("utm_content", utm_content) ||
+                !read_field("referrer", referrer) ||
                 !read_field("fax", honeypot)) {
                 json_error(res, 400, "Invalid field type");
                 return;
@@ -4561,6 +5907,19 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
         } catch (...) {
             json_error(res, 400, "Invalid fields");
             return;
+        }
+        if (referrer.empty() && req.has_header("Referer")) {
+            referrer = req.get_header_value("Referer");
+        }
+        if (too_long(source, 80) || too_long(utm_source, 160) ||
+            too_long(utm_medium, 160) || too_long(utm_campaign, 160) ||
+            too_long(utm_term, 160) || too_long(utm_content, 160) ||
+            too_long(referrer, 2048)) {
+            json_error(res, 400, "Attribution fields are too long");
+            return;
+        }
+        if (!referrer.empty() && !utils::is_safe_url(referrer)) {
+            referrer.clear();
         }
 
         // A hidden "fax" field is never shown to a person. Bots that fill every
@@ -4612,9 +5971,42 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
         inquiry.website = website;
         inquiry.message = message;
         inquiry.status = "new";
+        inquiry.source = source;
+        inquiry.utm_source = utm_source;
+        inquiry.utm_medium = utm_medium;
+        inquiry.utm_campaign = utm_campaign;
+        inquiry.utm_term = utm_term;
+        inquiry.utm_content = utm_content;
+        inquiry.referrer = referrer;
         if (!db_->create_partner_inquiry(inquiry)) {
             json_error(res, 500, "Could not save the application");
             return;
+        }
+
+        PartnerInquiry stored_inquiry = inquiry;
+        auto stored_opt = db_->get_partner_inquiry(inquiry.id);
+        if (stored_opt) stored_inquiry = *stored_opt;
+
+        CrmLead lead;
+        bool lead_created = false;
+        std::string lead_error;
+        if (!db_->create_crm_lead_from_inquiry(stored_inquiry, lead, lead_created, lead_error)) {
+            std::cerr << "[CRM] Could not create lead from inquiry " << inquiry.id
+                      << ": " << lead_error << std::endl;
+        } else {
+            std::string automation_error;
+            db_->enqueue_automation_event("inquiry", "", "",
+                nlohmann::json({
+                    {"inquiry_id", inquiry.id},
+                    {"lead_id", lead.id},
+                    {"kind", kind},
+                    {"source", source},
+                    {"utm_source", utm_source},
+                    {"utm_campaign", utm_campaign},
+                    {"company", company},
+                    {"website", website}
+                }).dump(),
+                "inquiry:" + inquiry.id, automation_error);
         }
 
         AuditLog al;
@@ -4622,7 +6014,13 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
         al.action = "PARTNER_INQUIRY_RECEIVED";
         al.entity_type = "partner_inquiry";
         al.entity_id = inquiry.id;
-        al.details = nlohmann::json({{"kind", kind}}).dump();
+        al.details = nlohmann::json({
+            {"kind", kind},
+            {"lead_created", lead_created},
+            {"source", source},
+            {"utm_source", utm_source},
+            {"utm_campaign", utm_campaign}
+        }).dump();
         db_->record_audit_log(al);
 
         res.status = 201;
@@ -4704,6 +6102,20 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
             json_error(res, 404, "Course not found");
             return;
         }
+        if (course->access_type == "paid") {
+            auto entitlement = db_->get_course_entitlement(user->id, course->id);
+            if (!entitlement || entitlement->status != "active") {
+                res.status = 402;
+                res.set_content(nlohmann::json({
+                    {"error", "Payment required to enroll in this course"},
+                    {"payment_required", true},
+                    {"course_slug", course->slug},
+                    {"price_cents", course->price_cents},
+                    {"currency", course->currency}
+                }).dump(), "application/json");
+                return;
+            }
+        }
         Enrollment enrollment;
         bool created = false;
         std::string error;
@@ -4725,6 +6137,144 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
             {"created", created},
             {"enrollment", enrollment.to_json()},
             {"course", learning_course_public_json(*course)}
+        }).dump(), "application/json");
+    });
+
+    svr.Post(R"(/api/v3/learning/courses/([a-z0-9-]+)/purchase)", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_learning(req, res);
+        if (!user) return;
+        if (!allow_request("learn-purchase:" + user->id, 20, 60)) {
+            res.set_header("Retry-After", "60");
+            json_error(res, 429, "Rate limit exceeded");
+            return;
+        }
+        auto course = db_->get_learning_course_by_slug(req.matches[1]);
+        if (!course || !learning_course_is_public(*db_, *course)) {
+            json_error(res, 404, "Course not found");
+            return;
+        }
+        if (course->access_type != "paid" || course->price_cents <= 0) {
+            json_error(res, 400, "This course is free to enroll in");
+            return;
+        }
+        auto entitlement = db_->get_course_entitlement(user->id, course->id);
+        if (entitlement && entitlement->status == "active") {
+            json_error(res, 409, "You already have access to this course");
+            return;
+        }
+
+        // Reuse an existing open course invoice so repeated clicks cannot create
+        // duplicate charges.
+        for (const auto& invoice : db_->list_billing_invoices(std::nullopt, user->id, "course",
+                                                              std::nullopt, 100, 0)) {
+            if (invoice.status != "open" && invoice.status != "partially_paid") continue;
+            for (const auto& item : invoice.items) {
+                if (item.course_id != course->id) continue;
+                res.status = 200;
+                res.set_content(nlohmann::json({
+                    {"invoice", invoice.to_json()},
+                    {"payment_required", true}
+                }).dump(), "application/json");
+                return;
+            }
+        }
+
+        BillingInvoice invoice;
+        invoice.user_id = user->id;
+        invoice.context = "course";
+        invoice.currency = course->currency;
+        invoice.notes = "Course purchase: " + course->title;
+        invoice.due_at = utils::iso8601_from_epoch(utils::utc_now_epoch() + 7 * 86400);
+        BillingInvoiceItem item;
+        item.kind = "course";
+        item.description = course->title;
+        item.quantity = 1;
+        item.unit_amount_cents = course->price_cents;
+        item.amount_cents = course->price_cents;
+        item.course_id = course->id;
+        item.metadata = nlohmann::json({
+            {"course_slug", course->slug},
+            {"course_title", course->title}
+        }).dump();
+        invoice.items.push_back(item);
+
+        std::string error;
+        if (!db_->create_billing_invoice(invoice, error)) {
+            json_error(res, 500, error);
+            return;
+        }
+        AuditLog al;
+        al.actor = user->email;
+        al.action = "CREATE_COURSE_PURCHASE";
+        al.entity_type = "billing_invoice";
+        al.entity_id = invoice.id;
+        al.details = nlohmann::json({
+            {"course_id", course->id},
+            {"course_slug", course->slug},
+            {"price_cents", course->price_cents},
+            {"currency", course->currency}
+        }).dump();
+        db_->record_audit_log(al);
+
+        auto created = db_->get_billing_invoice(invoice.id);
+        res.status = 201;
+        res.set_content(nlohmann::json({
+            {"invoice", created ? created->to_json() : invoice.to_json()},
+            {"payment_required", true}
+        }).dump(), "application/json");
+    });
+
+    svr.Get("/api/v3/learning/purchases", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_learning(req, res);
+        if (!user) return;
+        if (!allow_request("learn-purchases:" + user->id, 120, 60)) {
+            res.set_header("Retry-After", "60");
+            json_error(res, 429, "Rate limit exceeded");
+            return;
+        }
+        nlohmann::json purchases = nlohmann::json::array();
+        for (const auto& invoice : db_->list_billing_invoices(std::nullopt, user->id, "course",
+                                                              std::nullopt, 200, 0)) {
+            purchases.push_back(invoice.to_json());
+        }
+        nlohmann::json entitlements = nlohmann::json::array();
+        for (const auto& entitlement : db_->list_user_entitlements(user->id)) {
+            nlohmann::json row = entitlement.to_json();
+            auto course = db_->get_learning_course(entitlement.course_id);
+            row["course"] = course ? learning_course_public_json(*course) : nlohmann::json(nullptr);
+            entitlements.push_back(row);
+        }
+        nlohmann::json payments = nlohmann::json::array();
+        for (const auto& payment : db_->list_billing_payments(std::nullopt, user->id,
+                                                              std::nullopt, 200, 0)) {
+            payments.push_back(payment.to_json());
+        }
+        res.set_content(nlohmann::json({
+            {"purchases", purchases},
+            {"entitlements", entitlements},
+            {"payments", payments}
+        }).dump(), "application/json");
+    });
+
+    svr.Get(R"(/api/v3/learning/purchases/([^/]+))", [this](const httplib::Request& req, httplib::Response& res) {
+        set_no_store(res);
+        auto user = authenticate_learning(req, res);
+        if (!user) return;
+        auto invoice = db_->get_billing_invoice(req.matches[1]);
+        if (!invoice || invoice->user_id != user->id) {
+            json_error(res, 404, "Purchase not found");
+            return;
+        }
+        nlohmann::json payments = nlohmann::json::array();
+        for (const auto& payment : db_->list_billing_payments(std::nullopt, user->id,
+                                                              invoice->id, 100, 0)) {
+            payments.push_back(payment.to_json());
+        }
+        res.set_content(nlohmann::json({
+            {"invoice", invoice->to_json()},
+            {"payments", payments}
         }).dump(), "application/json");
     });
 
@@ -5073,6 +6623,9 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
             course.level = body.value("level", "beginner");
             course.duration_minutes = body.value("duration_minutes", 60);
             course.topic_id = body.value("topic_id", "");
+            course.price_cents = body.value("price_cents", 0);
+            course.currency = body.value("currency", "USD");
+            course.access_type = body.value("access_type", "free");
             std::string topic_slug = body.value("topic_slug", "");
             if (course.topic_id.empty() && !topic_slug.empty()) {
                 auto topic = db_->get_learning_topic_by_slug(
@@ -5182,6 +6735,9 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
             if (body.contains("level")) updated.level = body.value("level", "");
             if (body.contains("duration_minutes")) updated.duration_minutes = body.value("duration_minutes", 0);
             if (body.contains("topic_id")) updated.topic_id = body.value("topic_id", "");
+            if (body.contains("price_cents")) updated.price_cents = body.value("price_cents", 0);
+            if (body.contains("currency")) updated.currency = body.value("currency", "USD");
+            if (body.contains("access_type")) updated.access_type = body.value("access_type", "free");
             if (body.contains("topic_slug")) {
                 auto topic = db_->get_learning_topic_by_slug(
                     utils::to_lower_copy(utils::trim_copy(body.value("topic_slug", ""))));
@@ -6102,6 +7658,8 @@ void ApiServer::register_routes(httplib::Server& svr, const std::string& sdk_pat
             {"note", "Aggregate AdControl learning metrics only; no named learner activity is returned."}
         }).dump(), "application/json");
     });
+
+    register_feature_routes(svr, sdk_path);
 }
 
 } // namespace adcontrol
