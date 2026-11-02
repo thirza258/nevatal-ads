@@ -84,9 +84,7 @@ The production origin for this deployment is **https://marketing.nevatal.id**.
   creative/variant performance comparison, automatic weight reallocation and
   winner selection, browser frequency capping, UTM/device/referrer audience
   segments, and daily campaign budgets measured from observed impressions.
-- **Monetization & billing**: Free, Pro, Business, and Enterprise plans,
-  impression overage and hard caps, campaign quotas, manual invoices and payment
-  history, paid-course entitlements, and publisher revenue-share payouts.
+- **100% Free platform**: Completely free to use with zero subscriptions, no billing tiers, no impression fees, and no paywalls.
 
 ## Stack
 
@@ -295,9 +293,8 @@ private endpoint still enforces authentication and authorization server-side.
 
 ### Phase 3 boundaries
 
-- Courses can be free or paid. A paid course creates a manual invoice and
-  requires an active entitlement, granted after an administrator records
-  settlement. There is no card checkout, tax engine, certificate, cohort, or
+- All courses and features are 100% free with no payment, billing, or subscription
+  required. There is no card checkout, tax engine, certificate, cohort, or
   instructor-marketplace implementation.
 - The seed catalog covers digital marketing foundations, advertising/campaign
   optimization, SEO, GEO, SEM/PPC, affiliate/Shopee basics, content/social, and
@@ -499,15 +496,14 @@ checks, off-host copies, retention, and recovery testing.
   is no SMS/push transport.
 - CRM is administrator-only. Email sending requires the existing SMTP settings;
   there is no inbound email sync, calendar sync, or third-party CRM integration.
-- Billing uses provider-agnostic manual settlement. Plan changes and paid courses
-  create invoices, but there is no card checkout, automatic renewal, tax
-  calculation, or payment-provider webhook.
+- The platform is 100% free. There are no billing systems, paid subscriptions,
+  card checkout, or payment gateways.
 - The schema carries a read-only `analyst` role, but this release has no
   account-provisioning or tenant-scoping workflow for analysts. Only `admin` and
   publisher-owner accounts are provisioned through the product.
 - Domain verification uses DNS TXT or an administrator-only manual fallback. An
   administrator who uses the fallback attests ownership out of band.
-- Paid learning courses use a manual invoice and entitlement flow; there is no
+- Learning courses are completely free for all learners; there is no
   card checkout, automatic renewal, certificate, cohort, marketplace, or
   owned-video hosting. Learning route metadata is applied client-side; the
   sitemap and canonical URLs are available without JavaScript, but server-side

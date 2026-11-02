@@ -29,7 +29,7 @@ import {
 import { Markdown } from '../markdown';
 import { Link, useRouter } from '../router';
 import { useSeo } from '../seo';
-import { formatDate, formatError, formatMoney, isLearningUser, levelLabel, useAuth, useRemote } from '../state';
+import { formatDate, formatError, isLearningUser, levelLabel, useAuth, useRemote } from '../state';
 import { LearningPath, LearningTopic } from '../types';
 
 const isReviewOverdue = (value?: string): boolean => {
@@ -40,9 +40,9 @@ const isReviewOverdue = (value?: string): boolean => {
 
 export const HomePage: React.FC = () => {
   useSeo({
-    title: 'AdControl Learning — practical marketing skills',
+    title: 'AdControl — 100% Free Ad Delivery & Marketing Learning Platform',
     description:
-      'Free, practical courses on digital marketing foundations, SEO, GEO, paid search, affiliate publishing, content, and honest measurement.',
+      'A completely free marketing and ad management platform. Centralized ad serving, courses on SEO, GEO, analytics, paid search, and content with zero fees, subscriptions, or billing.',
     path: '/',
   });
 
@@ -69,18 +69,20 @@ export const HomePage: React.FC = () => {
       <section className="border-b border-slate-200/80 bg-white">
         <Container className="grid items-center gap-10 py-12 sm:py-16 lg:grid-cols-[1.25fr_0.75fr] lg:py-20">
           <div>
-            <div className="lc-eyebrow">Open course catalog</div>
+            <div className="lc-eyebrow flex items-center gap-2">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              100% Free &amp; Open Platform
+            </div>
             <h1 className="mt-3 max-w-3xl text-4xl font-bold leading-[1.08] tracking-[-0.03em] text-slate-950 sm:text-5xl lg:text-6xl">
-              Marketing skills you can put to work today.
+              Marketing skills &amp; ad control — completely free.
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-              Learn the foundations, the platforms, and the measurement habits behind responsible
-              advertising. Short lessons, practical exercises, and a catalog that clearly marks any
-              paid course.
+              AdControl is 100% free with no subscriptions, no billing tiers, and no credit card required.
+              Learn practical marketing craft and manage self-hosted ad delivery across your websites at zero cost.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link to="/courses" className="lc-button lc-button-primary px-5 py-3">
-                Browse courses
+                Browse free courses
                 <ArrowRight className="h-4 w-4" aria-hidden="true" />
               </Link>
               <Link to="/learning-paths" className="lc-button lc-button-secondary px-5 py-3">
@@ -88,17 +90,21 @@ export const HomePage: React.FC = () => {
               </Link>
             </div>
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-600">
-              <span className="inline-flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-teal-700" aria-hidden="true" />
-                Free core courses
+              <span className="inline-flex items-center gap-2 font-medium text-emerald-800">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+                100% Free forever
               </span>
-              <span className="inline-flex items-center gap-2">
+              <span className="inline-flex items-center gap-2 font-medium text-slate-700">
                 <CheckCircle2 className="h-4 w-4 text-teal-700" aria-hidden="true" />
-                Self-paced
+                No credit card or billing
               </span>
-              <span className="inline-flex items-center gap-2">
+              <span className="inline-flex items-center gap-2 font-medium text-slate-700">
                 <CheckCircle2 className="h-4 w-4 text-teal-700" aria-hidden="true" />
-                Progress saved
+                Zero paywalls
+              </span>
+              <span className="inline-flex items-center gap-2 font-medium text-slate-700">
+                <CheckCircle2 className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                Self-paced learning
               </span>
             </div>
           </div>
@@ -207,6 +213,50 @@ export const HomePage: React.FC = () => {
                     </span>
                   </Link>
                 ))}
+              </div>
+            </section>
+
+            <section className="mt-16 rounded-2xl border border-teal-200/80 bg-gradient-to-br from-teal-50/70 via-emerald-50/30 to-slate-50 p-8 sm:p-10" aria-labelledby="free-platform-heading">
+              <div className="max-w-3xl">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100/80 px-3 py-1 text-xs font-bold uppercase tracking-wider text-emerald-900">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-700" aria-hidden="true" />
+                  Always 100% Free
+                </span>
+                <h2 id="free-platform-heading" className="mt-3 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
+                  Zero billing. Zero paywalls. Free for everyone.
+                </h2>
+                <p className="mt-3 text-base leading-7 text-slate-600">
+                  AdControl operates with no billing systems, no tiered subscriptions, and no hidden upgrade fees. All educational materials, advertising management tools, and reporting dashboards are completely free to use.
+                </p>
+              </div>
+              <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="rounded-xl border border-white/80 bg-white/90 p-5 shadow-sm">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-teal-100 text-teal-800">
+                    <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+                  </div>
+                  <h3 className="mt-3 font-bold text-slate-950">No Subscriptions or Fees</h3>
+                  <p className="mt-1.5 text-sm leading-6 text-slate-600">
+                    No credit card is ever required. There are no invoices, payment gateways, or trial expirations.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/80 bg-white/90 p-5 shadow-sm">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-teal-100 text-teal-800">
+                    <BookOpen className="h-5 w-5" aria-hidden="true" />
+                  </div>
+                  <h3 className="mt-3 font-bold text-slate-950">Complete Open Curriculum</h3>
+                  <p className="mt-1.5 text-sm leading-6 text-slate-600">
+                    Access every single course, practical exercise, and learning path across SEO, GEO, analytics, and content marketing freely.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/80 bg-white/90 p-5 shadow-sm">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-teal-100 text-teal-800">
+                    <Target className="h-5 w-5" aria-hidden="true" />
+                  </div>
+                  <h3 className="mt-3 font-bold text-slate-950">Unrestricted Ad Control</h3>
+                  <p className="mt-1.5 text-sm leading-6 text-slate-600">
+                    Centrally serve privacy-respecting ads on your publications with full control and zero impression quotas or artificial limits.
+                  </p>
+                </div>
               </div>
             </section>
 
@@ -441,7 +491,6 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
   const { user } = useAuth();
   const [enrolling, setEnrolling] = useState(false);
   const [enrollError, setEnrollError] = useState<string | null>(null);
-  const [purchaseInvoice, setPurchaseInvoice] = useState<import('../types').BillingInvoice | null>(null);
   const [previewLessonId, setPreviewLessonId] = useState<string | null>(null);
   const detail = useRemote(() => learningApi.getCourse(slug), [slug]);
   const course = detail.data?.course;
@@ -463,34 +512,11 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
     }
     setEnrolling(true);
     setEnrollError(null);
-    setPurchaseInvoice(null);
     try {
       await learningApi.enroll(slug);
       navigate(`/learn/${slug}`);
     } catch (error) {
-      const status = (error as { status?: number }).status;
-      if (course?.access_type === 'paid' && status === 402) {
-        try {
-          const purchase = await learningApi.purchaseCourse(slug);
-          setPurchaseInvoice(purchase.invoice);
-        } catch (purchaseError) {
-          const purchaseStatus = (purchaseError as { status?: number }).status;
-          if (purchaseStatus === 409) {
-            // Access was granted after the page loaded; enrollment can now succeed.
-            try {
-              await learningApi.enroll(slug);
-              navigate(`/learn/${slug}`);
-              return;
-            } catch (retryError) {
-              setEnrollError(formatError(retryError));
-            }
-          } else {
-            setEnrollError(formatError(purchaseError));
-          }
-        }
-      } else {
-        setEnrollError(formatError(error));
-      }
+      setEnrollError(formatError(error));
     } finally {
       setEnrolling(false);
     }
@@ -544,8 +570,8 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
             >
               {course.topic_title}
             </Link>
-            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
-              {course.access_type === 'paid' ? formatMoney(course.price_cents, course.currency) : 'Free'}
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+              100% Free
             </span>
             {isReviewOverdue(course.next_review_due_at) && (
               <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-950">
@@ -560,7 +586,7 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
           <meta itemProp="description" content={course.summary} />
           <meta itemProp="courseCode" content={course.slug} />
           <meta itemProp="educationalLevel" content={levelLabel(course.level)} />
-          <meta itemProp="isAccessibleForFree" content={course.access_type === 'paid' ? 'false' : 'true'} />
+          <meta itemProp="isAccessibleForFree" content="true" />
           <span className="hidden" itemProp="provider" itemScope itemType="https://schema.org/Organization">
             <meta itemProp="name" content="AdControl Learning" />
           </span>
@@ -664,24 +690,11 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
             <aside className="space-y-5 lg:sticky lg:top-24 lg:self-start">
               <div className="lc-card p-5">
                 <div className="text-sm font-semibold text-slate-900">
-                  {course.access_type === 'paid'
-                    ? `Purchase for ${formatMoney(course.price_cents, course.currency)}`
-                    : 'Enroll for free'}
+                  Enroll for free
                 </div>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  {course.access_type === 'paid'
-                    ? 'A manual invoice is created for this course. Access unlocks after an administrator confirms the offline payment.'
-                    : 'Create or use a free learning account to unlock every lesson, save progress, and take quizzes.'}
+                  AdControl is completely free. Create or use a free learning account to unlock every lesson, save progress, and take quizzes.
                 </p>
-                {purchaseInvoice && (
-                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950" role="status">
-                    <div className="font-semibold">Invoice created · {formatMoney(purchaseInvoice.total_cents, purchaseInvoice.currency)}</div>
-                    <div className="mt-1 font-mono text-[10px] text-amber-800">{purchaseInvoice.id}</div>
-                    <div className="mt-1">
-                      Status: {purchaseInvoice.status.replace('_', ' ')}. An administrator will confirm payment; then open this course again to enroll.
-                    </div>
-                  </div>
-                )}
                 {enrollError && (
                   <p className="mt-3 rounded-lg bg-rose-50 p-3 text-xs font-medium text-rose-900" role="alert">
                     {enrollError}
@@ -705,12 +718,8 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
                     {enrolling
                       ? 'Opening course…'
                       : user
-                        ? course.access_type === 'paid'
-                          ? `Purchase for ${formatMoney(course.price_cents, course.currency)}`
-                          : 'Start this course'
-                        : course.access_type === 'paid'
-                          ? 'Sign in to purchase'
-                          : 'Sign in to enroll'}
+                        ? 'Start this course'
+                        : 'Sign in to enroll'}
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </button>
                 )}
@@ -724,7 +733,7 @@ export const CourseDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
                   <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />Progress saved automatically</li>
                   <li className="flex items-center gap-2">
                     <CheckCircle2 className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
-                    {course.access_type === 'paid' ? 'Manual invoice; access after payment' : 'No payment details'}
+                    100% Free · No payment details
                   </li>
                 </ul>
               </div>

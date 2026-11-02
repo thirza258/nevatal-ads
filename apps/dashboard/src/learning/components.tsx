@@ -10,7 +10,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { Link } from './router';
-import { formatDuration, formatMoney, levelLabel, statusLabel } from './state';
+import { formatDuration, levelLabel, statusLabel } from './state';
 import { PublicCourse } from './types';
 
 interface ProgressBarProps {
@@ -113,7 +113,7 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course, compact = false 
     >
       <meta itemProp="courseCode" content={course.slug} />
       <meta itemProp="educationalLevel" content={levelLabel(course.level)} />
-      <meta itemProp="isAccessibleForFree" content={course.access_type === 'paid' ? 'false' : 'true'} />
+      <meta itemProp="isAccessibleForFree" content="true" />
       <meta itemProp="description" content={course.summary} />
       <span className="hidden" itemProp="provider" itemScope itemType="https://schema.org/Organization">
         <meta itemProp="name" content="AdControl Learning" />
@@ -127,10 +127,8 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course, compact = false 
           {course.topic_title}
         </Link>
         <span className="text-slate-300" aria-hidden="true">/</span>
-        <span className="text-xs font-medium text-slate-500">
-          {course.access_type === 'paid'
-            ? formatMoney(course.price_cents, course.currency)
-            : 'Free'}
+        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+          Free
         </span>
       </div>
 

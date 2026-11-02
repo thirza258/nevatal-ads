@@ -13,7 +13,6 @@ import { ConversionsView } from './views/ConversionsView';
 import { AutomationView } from './views/AutomationView';
 import { SeoView } from './views/SeoView';
 import { OptimizationView } from './views/OptimizationView';
-import { BillingView } from './views/BillingView';
 import { EmailMarketingView } from './views/EmailMarketingView';
 import { AffiliateOffersView } from './views/AffiliateOffersView';
 import { PublishersView } from './views/PublishersView';
@@ -299,8 +298,6 @@ const App: React.FC = () => {
         return <OptimizationView onNotify={notify} />;
       case 'email':
         return <EmailMarketingView onNotify={notify} />;
-      case 'billing':
-        return <BillingView role={user.role} onNotify={notify} />;
       case 'affiliate':
         return <AffiliateOffersView onNotify={notify} role={user.role} />;
       case 'publishers':

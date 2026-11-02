@@ -12,7 +12,6 @@ import {
   Settings,
   Ticket,
   Users,
-  CreditCard,
   Target,
   Zap,
   UserCheck,
@@ -28,7 +27,6 @@ export type NavTab =
   | 'automation'
   | 'seo'
   | 'optimization'
-  | 'billing'
   | 'email'
   | 'affiliate'
   | 'publishers'
@@ -74,12 +72,6 @@ export const NAV_ITEMS: NavItem[] = [
     id: 'optimization',
     label: 'Optimization',
     icon: <FlaskConical className="w-4 h-4" />,
-    roles: ['admin', 'publisher'],
-  },
-  {
-    id: 'billing',
-    label: 'Billing',
-    icon: <CreditCard className="w-4 h-4" />,
     roles: ['admin', 'publisher'],
   },
   {

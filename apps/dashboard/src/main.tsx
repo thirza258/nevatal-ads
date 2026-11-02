@@ -13,7 +13,6 @@ const DASHBOARD_TABS = new Set([
   'automation',
   'seo',
   'optimization',
-  'billing',
   'email',
   'affiliate',
   'publishers',
