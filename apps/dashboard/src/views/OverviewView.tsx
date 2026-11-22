@@ -83,7 +83,10 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   }
 
   // Find max value in timeseries for relative bar height
-  const maxEvents = Math.max(...timeseries.map((t) => Math.max(t.impressions, t.clicks)), 10);
+  const maxEvents = Math.max(
+    ...timeseries.map((t) => Math.max(t?.impressions || 0, t?.clicks || 0)),
+    10,
+  );
 
   return (
     <div className="flex flex-col gap-8">
@@ -247,8 +250,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           <div className="flex flex-col gap-3">
             <div className="h-44 flex items-end gap-3 pt-6 pb-2 border-b border-slate-100">
               {timeseries.map((pt) => {
-                const impHeight = Math.max(8, Math.round((pt.impressions / maxEvents) * 100));
-                const clkHeight = Math.max(8, Math.round((pt.clicks / maxEvents) * 100));
+                const impHeight = Math.max(8, Math.min(100, Math.round(((pt.impressions || 0) / maxEvents) * 100)));
+                const clkHeight = Math.max(8, Math.min(100, Math.round(((pt.clicks || 0) / maxEvents) * 100)));
 
                 return (
                   <div key={pt.date} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">

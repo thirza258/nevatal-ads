@@ -4,6 +4,7 @@ import { User } from './types';
 import { NavTab, NAV_ITEMS, Sidebar, visibleNavItems } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
 import { ToastContainer, ToastMessage } from './components/Toast';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoginView } from './views/LoginView';
 import { OverviewView } from './views/OverviewView';
 import { WebsitesView } from './views/WebsitesView';
@@ -365,7 +366,9 @@ const App: React.FC = () => {
           </nav>
 
           <main className="flex-1 w-full max-w-[1600px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
-            {currentView}
+            <ErrorBoundary key={activeTab} fallbackTitle={`Error loading ${activeTab}`}>
+              {currentView}
+            </ErrorBoundary>
           </main>
 
           <footer className="px-4 sm:px-6 py-4 border-t border-slate-200 text-[11px] text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-1">

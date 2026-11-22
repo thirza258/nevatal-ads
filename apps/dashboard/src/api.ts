@@ -106,12 +106,22 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(endpoint, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(endpoint, { ...options, headers });
+  } catch (_) {
+    throw new ApiError(
+      'Could not connect to the server. Check your connection or verify the service is running.',
+      0,
+    );
+  }
 
   if (res.status === 401) {
-    clearStoredToken();
-    window.dispatchEvent(new Event('auth:unauthorized'));
-    throw new ApiError('Unauthorized or session expired', 401);
+    if (!endpoint.includes('/auth/login')) {
+      clearStoredToken();
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+    throw await errorFromResponse(res);
   }
 
   if (!res.ok) {
@@ -212,7 +222,7 @@ export const api = {
   async getSites(publisherId?: string): Promise<Site[]> {
     const q = publisherId ? `?publisher_id=${encodeURIComponent(publisherId)}` : '';
     const res = await request<{ sites: Site[] }>(`/api/v1/sites${q}`);
-    return res.sites;
+    return res?.sites || [];
   },
 
   async getSite(id: string): Promise<Site> {
@@ -266,7 +276,7 @@ export const api = {
   async getPlacements(siteId?: string): Promise<Placement[]> {
     const q = siteId ? `?site_id=${encodeURIComponent(siteId)}` : '';
     const res = await request<{ placements: Placement[] }>(`/api/v1/placements${q}`);
-    return res.placements;
+    return res?.placements || [];
   },
 
   async createPlacement(placement: Partial<Placement>): Promise<Placement> {
@@ -297,7 +307,7 @@ export const api = {
     if (filters?.status && filters.status !== 'all') params.set('status', filters.status);
     const qs = params.toString() ? `?${params.toString()}` : '';
     const res = await request<{ campaigns: Campaign[] }>(`/api/v1/campaigns${qs}`);
-    return res.campaigns;
+    return res?.campaigns || [];
   },
 
   async createCampaign(campaign: Partial<Campaign>): Promise<Campaign> {
@@ -335,7 +345,7 @@ export const api = {
   // Publishers
   async getPublishers(): Promise<Publisher[]> {
     const res = await request<{ publishers: Publisher[] }>('/api/v1/publishers');
-    return res.publishers;
+    return res?.publishers || [];
   },
 
   async getPublisher(id: string): Promise<{ publisher: Publisher; sites: Site[] }> {
@@ -370,7 +380,7 @@ export const api = {
     if (filters?.status && filters.status !== 'all') params.set('status', filters.status);
     const qs = params.toString() ? `?${params.toString()}` : '';
     const res = await request<{ affiliate_offers: AffiliateOffer[] }>(`/api/v1/affiliate-offers${qs}`);
-    return res.affiliate_offers;
+    return res?.affiliate_offers || [];
   },
 
   async getAffiliateOffer(id: string): Promise<{ affiliate_offer: AffiliateOffer; campaigns: Campaign[] }> {
@@ -455,7 +465,9 @@ export const api = {
     days?: number;
   }): Promise<TimeseriesPoint[]> {
     const qs = analyticsParams({ ...filters, days: filters?.days || 7 }).toString();
-    return request<TimeseriesPoint[]>(`/api/v1/analytics/timeseries?${qs}`);
+    const res = await request<TimeseriesPoint[] | { timeseries: TimeseriesPoint[] }>(`/api/v1/analytics/timeseries?${qs}`);
+    if (Array.isArray(res)) return res;
+    return (res as any)?.timeseries || [];
   },
 
   async getAnalyticsBreakdown(filters?: {
@@ -472,7 +484,7 @@ export const api = {
     const res = await request<{ rows: AnalyticsBreakdownRow[] }>(
       `/api/v1/analytics/breakdown?${params.toString()}`,
     );
-    return res.rows;
+    return res?.rows || [];
   },
 
   async downloadAnalyticsCsv(filters?: {
@@ -520,7 +532,7 @@ export const api = {
     const res = await request<{ inquiries: PartnerInquiry[] }>(
       `/api/v1/partner-inquiries?${params.toString()}`,
     );
-    return res.inquiries;
+    return res?.inquiries || [];
   },
 
   async updatePartnerInquiry(id: string, status: PartnerInquiryStatus): Promise<PartnerInquiry> {
@@ -536,7 +548,7 @@ export const api = {
     const res = await request<{ audit_logs: AuditLogItem[] }>(
       `/api/v1/audit-log?limit=${limit}&offset=${offset}`,
     );
-    return res.audit_logs;
+    return res?.audit_logs || [];
   },
 
   // Conversion tracking and attribution
@@ -548,7 +560,7 @@ export const api = {
     const res = await request<{ sources: ConversionSource[] }>(
       `/api/v1/conversion/sources${q ? `?${q}` : ''}`,
     );
-    return res.sources;
+    return res?.sources || [];
   },
 
   async createConversionSource(payload: {
@@ -594,7 +606,7 @@ export const api = {
     const res = await request<{ conversions: ConversionEvent[] }>(
       `/api/v1/conversions?${params.toString()}`,
     );
-    return res.conversions;
+    return res?.conversions || [];
   },
 
   async getConversionSummary(filters?: {
@@ -623,7 +635,7 @@ export const api = {
     const res = await request<{ rows: ConversionReconciliationRow[] }>(
       `/api/v1/conversions/reconciliation?${params.toString()}`,
     );
-    return res.rows;
+    return res?.rows || [];
   },
 
   async updateConversion(
@@ -646,7 +658,7 @@ export const api = {
     const res = await request<{ workflows: AutomationWorkflow[] }>(
       `/api/v1/automation/workflows${q ? `?${q}` : ''}`,
     );
-    return res.workflows;
+    return res?.workflows || [];
   },
 
   async createAutomationWorkflow(payload: {
@@ -708,7 +720,7 @@ export const api = {
     if (filters?.workflow_id) params.set('workflow_id', filters.workflow_id);
     params.set('limit', String(filters?.limit ?? 100));
     const res = await request<{ runs: AutomationRun[] }>(`/api/v1/automation/runs?${params.toString()}`);
-    return res.runs;
+    return res?.runs || [];
   },
 
   async getAutomationMetrics(filters: {
@@ -748,8 +760,8 @@ export const api = {
       pipeline: CrmPipelineStage[] | { stages?: CrmPipelineStage[] };
       summary: CrmSummary;
     }>(`/api/v1/crm/leads?${params.toString()}`);
-    const pipeline = Array.isArray(data.pipeline) ? data.pipeline : data.pipeline?.stages || [];
-    return { leads: data.leads, pipeline, summary: data.summary };
+    const pipeline = Array.isArray(data?.pipeline) ? data.pipeline : (data?.pipeline as any)?.stages || [];
+    return { leads: data?.leads || [], pipeline, summary: data?.summary || {} as any };
   },
 
   async createCrmLead(payload: {
@@ -834,7 +846,7 @@ export const api = {
     if (filters?.status) params.set('status', filters.status);
     params.set('limit', String(filters?.limit ?? 200));
     const res = await request<{ tasks: CrmTask[] }>(`/api/v1/crm/tasks?${params.toString()}`);
-    return res.tasks;
+    return res?.tasks || [];
   },
 
   async updateCrmTask(
@@ -850,7 +862,7 @@ export const api = {
 
   async getCrmOwners(): Promise<Array<{ id: string; email: string; role: string }>> {
     const res = await request<{ owners: Array<{ id: string; email: string; role: string }> }>('/api/v1/crm/owners');
-    return res.owners;
+    return res?.owners || [];
   },
 
   // Audience segments and experiments
@@ -861,7 +873,7 @@ export const api = {
     const res = await request<{ segments: AudienceSegment[] }>(
       `/api/v1/audience-segments${q ? `?${q}` : ''}`,
     );
-    return res.segments;
+    return res?.segments || [];
   },
 
   async createAudienceSegment(payload: {
@@ -899,7 +911,7 @@ export const api = {
     const res = await request<{ experiments: Experiment[] }>(
       `/api/v1/experiments${q ? `?${q}` : ''}`,
     );
-    return res.experiments;
+    return res?.experiments || [];
   },
 
   async createExperiment(payload: {
@@ -957,7 +969,7 @@ export const api = {
   // SEO and GEO intelligence
   async getSeoProjects(): Promise<SeoProject[]> {
     const res = await request<{ projects: SeoProject[] }>('/api/v1/seo/projects');
-    return res.projects;
+    return res?.projects || [];
   },
 
   async createSeoProject(payload: {
@@ -994,7 +1006,7 @@ export const api = {
     const res = await request<{ keywords: SeoKeyword[] }>(
       `/api/v1/seo/projects/${encodeURIComponent(projectId)}/keywords`,
     );
-    return res.keywords;
+    return res?.keywords || [];
   },
 
   async createSeoKeyword(projectId: string, payload: {
@@ -1021,7 +1033,7 @@ export const api = {
       `/api/v1/seo/projects/${encodeURIComponent(projectId)}/keywords/bulk`,
       { method: 'POST', body: JSON.stringify({ keywords }) },
     );
-    return res.keywords;
+    return res?.keywords || [];
   },
 
   async researchSeoKeywords(
@@ -1035,7 +1047,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ seed, count }),
     });
-    return res.suggestions;
+    return res?.suggestions || [];
   },
 
   async updateSeoKeyword(id: string, payload: Partial<SeoKeyword>): Promise<SeoKeyword> {
@@ -1068,7 +1080,7 @@ export const api = {
     const res = await request<{ competitors: SeoCompetitor[] }>(
       `/api/v1/seo/projects/${encodeURIComponent(projectId)}/competitors`,
     );
-    return res.competitors;
+    return res?.competitors || [];
   },
 
   async createSeoCompetitor(
@@ -1108,7 +1120,7 @@ export const api = {
     const res = await request<{ backlinks: SeoBacklink[] }>(
       `/api/v1/seo/projects/${encodeURIComponent(projectId)}/backlinks`,
     );
-    return res.backlinks;
+    return res?.backlinks || [];
   },
 
   async createSeoBacklink(projectId: string, payload: {
@@ -1150,7 +1162,7 @@ export const api = {
     const res = await request<{ audits: SeoAudit[] }>(
       `/api/v1/seo/projects/${encodeURIComponent(projectId)}/audits`,
     );
-    return res.audits;
+    return res?.audits || [];
   },
 
   async getSeoAudit(id: string): Promise<SeoAudit> {
@@ -1172,7 +1184,7 @@ export const api = {
     const res = await request<{ queries: GeoQuery[] }>(
       `/api/v1/seo/projects/${encodeURIComponent(projectId)}/geo`,
     );
-    return res.queries;
+    return res?.queries || [];
   },
 
   async createGeoQuery(
@@ -1212,7 +1224,7 @@ export const api = {
   async getBillingPlans(includeArchived = false): Promise<BillingPlan[]> {
     const q = includeArchived ? '?include_archived=1' : '';
     const res = await request<{ plans: BillingPlan[] }>(`/api/v1/billing/plans${q}`);
-    return res.plans;
+    return res?.plans || [];
   },
 
   async updateBillingPlan(id: string, payload: Partial<BillingPlan>): Promise<BillingPlan> {
@@ -1232,7 +1244,7 @@ export const api = {
     const res = await request<{ subscriptions: Array<PublisherSubscription & { plan: BillingPlan | null }> }>(
       '/api/v1/billing/subscriptions',
     );
-    return res.subscriptions;
+    return res?.subscriptions || [];
   },
 
   async updateBillingSubscription(
@@ -1287,7 +1299,7 @@ export const api = {
     const res = await request<{ invoices: BillingInvoice[] }>(
       `/api/v1/billing/invoices?${params.toString()}`,
     );
-    return res.invoices;
+    return res?.invoices || [];
   },
 
   async createBillingInvoice(payload: {
@@ -1375,7 +1387,7 @@ export const api = {
     const res = await request<{ payments: BillingPayment[] }>(
       `/api/v1/billing/payments?${params.toString()}`,
     );
-    return res.payments;
+    return res?.payments || [];
   },
 
   async getBillingRevenue(
@@ -1397,7 +1409,7 @@ export const api = {
     const res = await request<{ payouts: PublisherPayout[] }>(
       `/api/v1/billing/payouts?${params.toString()}`,
     );
-    return res.payouts;
+    return res?.payouts || [];
   },
 
   async createBillingPayout(payload: {

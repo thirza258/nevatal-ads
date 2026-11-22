@@ -8,11 +8,8 @@ deploy/cloudflared/*.json
 deploy/nginx/certs/
 
 # --- Runtime data ------------------------------------------------------------
-data/*.db
-data/*.db-*
-data/*.sqlite
-data/*.sqlite3
-data/backups/
+data/*
+!data/.gitkeep
 
 # --- Dependencies and build output -------------------------------------------
 **/node_modules/

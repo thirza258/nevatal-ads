@@ -184,6 +184,7 @@ export const SeoView: React.FC<SeoViewProps> = ({ onNotify }) => {
       setBacklinks([]);
       setAudits([]);
       setGeoQueries([]);
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -196,12 +197,12 @@ export const SeoView: React.FC<SeoViewProps> = ({ onNotify }) => {
         api.getSeoAudits(projectId),
         api.getGeoQueries(projectId),
       ]);
-      setSummary(summaryData.summary);
-      setKeywords(keywordRows);
-      setCompetitors(competitorRows);
-      setBacklinks(backlinkRows);
-      setAudits(auditRows);
-      setGeoQueries(geoRows);
+      setSummary(summaryData?.summary || EMPTY_SUMMARY);
+      setKeywords(keywordRows || []);
+      setCompetitors(competitorRows || []);
+      setBacklinks(backlinkRows || []);
+      setAudits(auditRows || []);
+      setGeoQueries(geoRows || []);
     } catch (err: any) {
       onNotify('error', err?.message || 'Failed to load SEO project');
     } finally {

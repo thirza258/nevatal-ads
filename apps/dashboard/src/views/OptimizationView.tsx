@@ -326,19 +326,20 @@ export const OptimizationView: React.FC<OptimizationViewProps> = ({ onNotify }) 
       {tab === 'experiments' && (
         <div className="space-y-4">
           {experiments.map((experiment) => {
-            const metrics = experiment.metrics?.variants || experiment.variants;
-            const winner = experiment.variants.find((variant) => variant.campaign_id === experiment.winner_campaign_id);
+            const experimentVariants = experiment.variants || [];
+            const metrics = experiment.metrics?.variants || experimentVariants;
+            const winner = experimentVariants.find((variant) => variant.campaign_id === experiment.winner_campaign_id);
             return (
               <div key={experiment.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-base font-bold text-slate-900">{experiment.name}</h3>
-                      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLES[experiment.status]}`}>
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLES[experiment.status] || 'border-slate-200 bg-slate-50 text-slate-600'}`}>
                         {experiment.status}
                       </span>
                       <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                        {OBJECTIVE_LABELS[experiment.objective]}
+                        {OBJECTIVE_LABELS[experiment.objective] || experiment.objective || 'Balanced'}
                       </span>
                       {winner && (
                         <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
@@ -388,8 +389,8 @@ export const OptimizationView: React.FC<OptimizationViewProps> = ({ onNotify }) 
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {metrics.map((variant) => (
-                        <tr key={variant.id} className={variant.campaign_id === experiment.winner_campaign_id ? 'bg-amber-50/60' : ''}>
+                      {(metrics || []).map((variant, vIdx) => (
+                        <tr key={variant.id || variant.campaign_id || vIdx} className={variant.campaign_id === experiment.winner_campaign_id ? 'bg-amber-50/60' : ''}>
                           <td className="py-2">
                             <div className="font-medium text-slate-800">{variant.name || variant.campaign_name}</div>
                             <div className="text-[10px] text-slate-400">

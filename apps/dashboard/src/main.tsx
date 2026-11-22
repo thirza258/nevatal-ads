@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 
 // Kept in sync with Sidebar NAV_ITEMS. This small list avoids loading the whole
@@ -54,7 +55,9 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
         </div>
       }
     >
-      <Root />
+      <ErrorBoundary fallbackTitle="Application Error">
+        <Root />
+      </ErrorBoundary>
     </Suspense>
   </React.StrictMode>,
 );

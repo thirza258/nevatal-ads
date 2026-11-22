@@ -87,11 +87,11 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
         api.getAffiliateOffers().catch(() => [] as AffiliateOffer[]),
         api.getAudienceSegments().catch(() => [] as AudienceSegment[]),
       ]);
-      setCampaigns(cRes);
-      setSites(sRes);
-      setPlacements(pRes);
-      setOffers(oRes);
-      setSegments(segRes);
+      setCampaigns(cRes || []);
+      setSites(sRes || []);
+      setPlacements(pRes || []);
+      setOffers(oRes || []);
+      setSegments(segRes || []);
 
       if (sRes.length > 0 && !formSiteId) {
         setFormSiteId(sRes[0].id);
@@ -801,7 +801,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Everyone</option>
-                  {segments.filter((segment) => segment.site_id === formSiteId && segment.status === 'active').map((segment) => (
+                  {(segments || []).filter((segment) => segment && segment.site_id === formSiteId && segment.status === 'active').map((segment) => (
                     <option key={segment.id} value={segment.id}>{segment.name}</option>
                   ))}
                 </select>
@@ -815,7 +815,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                   min={0}
                   step={1}
                   value={frequencyCap}
-                  onChange={(e) => setFrequencyCap(Number(e.target.value))}
+                  onChange={(e) => setFrequencyCap(Number(e.target.value) || 0)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">0 disables the cap. Enforced by the browser SDK per campaign.</p>
@@ -830,7 +830,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                   max={8760}
                   step={1}
                   value={frequencyWindowHours}
-                  onChange={(e) => setFrequencyWindowHours(Number(e.target.value))}
+                  onChange={(e) => setFrequencyWindowHours(Number(e.target.value) || 24)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>

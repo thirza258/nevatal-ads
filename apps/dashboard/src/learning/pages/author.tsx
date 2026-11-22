@@ -648,8 +648,8 @@ export const AdminAnalyticsPage: React.FC = () => {
 const AdminAnalyticsContent: React.FC = () => {
   const analytics = useRemote(() => learningApi.adminAnalytics(), []);
   const data = analytics.data;
-  const totalUsers = data
-    ? data.users_by_role.learners + data.users_by_role.instructors + data.users_by_role.editors
+  const totalUsers = data?.users_by_role
+    ? (data.users_by_role.learners || 0) + (data.users_by_role.instructors || 0) + (data.users_by_role.editors || 0)
     : 0;
 
   return (
@@ -670,15 +670,15 @@ const AdminAnalyticsContent: React.FC = () => {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricTile label="Learners" value={data.users_by_role.learners} detail={`${totalUsers} learning and staff accounts`} icon={<GraduationCap className="h-5 w-5" />} />
-            <MetricTile label="Enrollments" value={data.totals.enrollments} detail="All time, all courses" icon={<BookOpen className="h-5 w-5" />} />
-            <MetricTile label="Completions" value={data.totals.completions} detail="Courses fully completed" icon={<CheckCircle2 className="h-5 w-5" />} />
-            <MetricTile label="Quiz attempts" value={data.totals.quiz_attempts} detail="Graded submissions" icon={<FileText className="h-5 w-5" />} />
+            <MetricTile label="Learners" value={data.users_by_role?.learners || 0} detail={`${totalUsers} learning and staff accounts`} icon={<GraduationCap className="h-5 w-5" />} />
+            <MetricTile label="Enrollments" value={data.totals?.enrollments || 0} detail="All time, all courses" icon={<BookOpen className="h-5 w-5" />} />
+            <MetricTile label="Completions" value={data.totals?.completions || 0} detail="Courses fully completed" icon={<CheckCircle2 className="h-5 w-5" />} />
+            <MetricTile label="Quiz attempts" value={data.totals?.quiz_attempts || 0} detail="Graded submissions" icon={<FileText className="h-5 w-5" />} />
           </div>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <MetricTile label="Instructors" value={data.users_by_role.instructors} detail="Can author their own courses" icon={<NotebookPen className="h-5 w-5" />} />
-            <MetricTile label="Editors" value={data.users_by_role.editors} detail="Can review and publish any course" icon={<ShieldCheck className="h-5 w-5" />} />
+            <MetricTile label="Instructors" value={data.users_by_role?.instructors || 0} detail="Can author their own courses" icon={<NotebookPen className="h-5 w-5" />} />
+            <MetricTile label="Editors" value={data.users_by_role?.editors || 0} detail="Can review and publish any course" icon={<ShieldCheck className="h-5 w-5" />} />
           </div>
 
           <section className="mt-10" aria-labelledby="course-metrics">
@@ -698,7 +698,7 @@ const AdminAnalyticsContent: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {data.courses.map((row) => (
+                  {(data.courses || []).map((row) => (
                     <tr key={row.course_id}>
                       <td className="px-4 py-3">
                         <span className="block font-semibold text-slate-900">{row.title}</span>

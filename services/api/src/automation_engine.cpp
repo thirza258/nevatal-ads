@@ -18,7 +18,8 @@ namespace adcontrol {
 namespace {
 
 std::string render_template(std::string value, const AutomationWorkflow& workflow,
-                            const AutomationRun& run, const nlohmann::json& trigger) {
+                            const AutomationRun& run, const nlohmann::json& trigger_in) {
+    const nlohmann::json trigger = trigger_in.is_object() ? trigger_in : nlohmann::json::object();
     auto replace_all = [&](const std::string& needle, const std::string& replacement) {
         size_t pos = 0;
         while ((pos = value.find(needle, pos)) != std::string::npos) {
@@ -190,8 +191,10 @@ bool deliver_webhook(const WebhookTarget& target, const std::string& body,
     return result->status >= 200 && result->status < 300;
 }
 
-std::string condition_scope(const AutomationWorkflow& workflow, const nlohmann::json& config,
-                            const nlohmann::json& trigger, bool want_campaign) {
+std::string condition_scope(const AutomationWorkflow& workflow, const nlohmann::json& config_in,
+                            const nlohmann::json& trigger_in, bool want_campaign) {
+    const nlohmann::json config = config_in.is_object() ? config_in : nlohmann::json::object();
+    const nlohmann::json trigger = trigger_in.is_object() ? trigger_in : nlohmann::json::object();
     if (want_campaign) {
         if (config.contains("campaign_id") && config["campaign_id"].is_string()) {
             return config["campaign_id"].get<std::string>();
@@ -225,52 +228,59 @@ int run_automation_tick(Database& db, int max_runs) {
     auto runs = db.list_due_automation_runs(now, max_runs);
     int processed = 0;
     for (const auto& initial_run : runs) {
-        AutomationRun run = initial_run;
-        auto workflow_opt = db.get_automation_workflow(run.workflow_id);
-        if (!workflow_opt) {
-            run.status = "failed";
-            run.error = "Workflow not found";
-            run.completed_at = now;
-            db.update_automation_run(run);
-            continue;
-        }
-        if (workflow_opt->status != "active") {
-            run.status = "skipped";
-            run.error = "Workflow is not active";
-            run.completed_at = now;
-            db.update_automation_run(run);
-            continue;
-        }
-        const AutomationWorkflow workflow = *workflow_opt;
-        nlohmann::json trigger;
         try {
-            trigger = nlohmann::json::parse(run.trigger_payload.empty() ? "{}" : run.trigger_payload);
-        } catch (...) {
-            trigger = nlohmann::json::object();
-        }
-
-        if (run.started_at.empty()) run.started_at = now;
-        run.status = "running";
-        run.error.clear();
-        bool stopped_for_delay = false;
-        bool failed = false;
-
-        auto log = [&](const std::string& message) {
-            if (!run.log.empty()) run.log += "\n";
-            run.log += "[" + utils::get_current_iso8601() + "] " + message;
-            if (run.log.size() > 16000) run.log = run.log.substr(run.log.size() - 16000);
-        };
-        if (run.current_step == 0) log("Run started from trigger " + workflow.trigger_type);
-
-        for (size_t index = static_cast<size_t>(std::max(0, run.current_step));
-             index < workflow.steps.size(); ++index) {
-            const AutomationStep& step = workflow.steps[index];
-            nlohmann::json config;
-            try {
-                config = nlohmann::json::parse(step.config.empty() ? "{}" : step.config);
-            } catch (...) {
-                config = nlohmann::json::object();
+            AutomationRun run = initial_run;
+            auto workflow_opt = db.get_automation_workflow(run.workflow_id);
+            if (!workflow_opt) {
+                run.status = "failed";
+                run.error = "Workflow not found";
+                run.completed_at = now;
+                db.update_automation_run(run);
+                continue;
             }
+            if (workflow_opt->status != "active") {
+                run.status = "skipped";
+                run.error = "Workflow is not active";
+                run.completed_at = now;
+                db.update_automation_run(run);
+                continue;
+            }
+            const AutomationWorkflow workflow = *workflow_opt;
+            nlohmann::json trigger;
+            try {
+                trigger = nlohmann::json::parse(run.trigger_payload.empty() ? "{}" : run.trigger_payload);
+            } catch (...) {
+                trigger = nlohmann::json::object();
+            }
+            if (!trigger.is_object()) {
+                trigger = nlohmann::json::object();
+            }
+
+            if (run.started_at.empty()) run.started_at = now;
+            run.status = "running";
+            run.error.clear();
+            bool stopped_for_delay = false;
+            bool failed = false;
+
+            auto log = [&](const std::string& message) {
+                if (!run.log.empty()) run.log += "\n";
+                run.log += "[" + utils::get_current_iso8601() + "] " + message;
+                if (run.log.size() > 16000) run.log = run.log.substr(run.log.size() - 16000);
+            };
+            if (run.current_step == 0) log("Run started from trigger " + workflow.trigger_type);
+
+            for (size_t index = static_cast<size_t>(std::max(0, run.current_step));
+                 index < workflow.steps.size(); ++index) {
+                const AutomationStep& step = workflow.steps[index];
+                nlohmann::json config;
+                try {
+                    config = nlohmann::json::parse(step.config.empty() ? "{}" : step.config);
+                } catch (...) {
+                    config = nlohmann::json::object();
+                }
+                if (!config.is_object()) {
+                    config = nlohmann::json::object();
+                }
 
             if (step.type == "condition") {
                 std::string campaign_id = condition_scope(workflow, config, trigger, true);
@@ -440,6 +450,18 @@ int run_automation_tick(Database& db, int max_runs) {
             db.update_automation_run(run);
         }
         ++processed;
+        } catch (const std::exception& e) {
+            std::cerr << "[Automation] Exception processing run " << initial_run.id << ": " << e.what() << std::endl;
+            AutomationRun failed_run = initial_run;
+            failed_run.status = "failed";
+            failed_run.error = std::string("Internal error: ") + e.what();
+            failed_run.completed_at = now;
+            db.update_automation_run(failed_run);
+            ++processed;
+        } catch (...) {
+            std::cerr << "[Automation] Unknown exception processing run " << initial_run.id << std::endl;
+            ++processed;
+        }
     }
     return processed;
 }

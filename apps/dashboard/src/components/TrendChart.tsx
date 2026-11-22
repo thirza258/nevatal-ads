@@ -44,22 +44,25 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   const [hover, setHover] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const points = data.length > 0 ? data : [{ label: '—', value: 0 }];
+  const points = (data && data.length > 0) ? data : [{ label: '—', value: 0 }];
   const n = points.length;
   const plotWidth = WIDTH - MARGIN.left - MARGIN.right;
   const plotHeight = HEIGHT - MARGIN.top - MARGIN.bottom;
   const maxValue = useMemo(() => {
-    const rawMax = Math.max(...points.map((p) => p.value), 0);
+    const rawMax = Math.max(...points.map((p) => (Number.isFinite(p?.value) ? p.value : 0)), 0);
     return niceMax(rawMax);
   }, [points]);
 
   const xFor = (index: number) =>
     MARGIN.left + (n === 1 ? plotWidth / 2 : (index / (n - 1)) * plotWidth);
-  const yFor = (value: number) =>
-    MARGIN.top + plotHeight - (Math.max(0, value) / maxValue) * plotHeight;
+  const yFor = (value: number) => {
+    const v = Number.isFinite(value) ? Math.max(0, value) : 0;
+    const max = maxValue > 0 ? maxValue : 1;
+    return MARGIN.top + plotHeight - (v / max) * plotHeight;
+  };
 
   const linePath = points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'}${xFor(index).toFixed(2)},${yFor(point.value).toFixed(2)}`)
+    .map((point, index) => `${index === 0 ? 'M' : 'L'}${xFor(index).toFixed(2)},${yFor(point?.value ?? 0).toFixed(2)}`)
     .join(' ');
   const baseline = MARGIN.top + plotHeight;
   const areaPath = `${linePath} L${xFor(n - 1).toFixed(2)},${baseline} L${xFor(0).toFixed(2)},${baseline} Z`;

@@ -205,22 +205,22 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ role, onNotify }
     [campaigns, draft.site_id],
   );
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
     try {
       const [workflowRows, runRows, notificationData] = await Promise.all([
         api.getAutomationWorkflows(),
         api.getAutomationRuns({ limit: 50 }),
         api.getAutomationNotifications(),
       ]);
-      setWorkflows(workflowRows);
-      setRuns(runRows);
-      setNotifications(notificationData.notifications);
-      setUnread(notificationData.unread);
+      setWorkflows(workflowRows || []);
+      setRuns(runRows || []);
+      setNotifications(notificationData?.notifications || []);
+      setUnread(notificationData?.unread || 0);
     } catch (err: any) {
       onNotify('error', err?.message || 'Failed to load automation data');
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   }, [onNotify]);
 
@@ -229,8 +229,8 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ role, onNotify }
     Promise.all([api.getSites(), api.getCampaigns()])
       .then(([siteRows, campaignRows]) => {
         if (cancelled) return;
-        setSites(siteRows);
-        setCampaigns(campaignRows);
+        setSites(siteRows || []);
+        setCampaigns(campaignRows || []);
       })
       .catch((err: any) => {
         if (!cancelled) onNotify('error', err?.message || 'Failed to load sites and campaigns');
@@ -242,7 +242,7 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ role, onNotify }
 
   useEffect(() => {
     load();
-    const timer = window.setInterval(load, 30_000);
+    const timer = window.setInterval(() => load(false), 30_000);
     return () => window.clearInterval(timer);
   }, [load]);
 
@@ -265,7 +265,7 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ role, onNotify }
       status: workflow.status,
       trigger_type: workflow.trigger_type,
       trigger_config: triggerConfig,
-      steps: workflow.steps.map((step) => ({ type: step.type, config: { ...(step.config || {}) } })),
+      steps: (workflow.steps || []).map((step) => ({ type: step.type, config: { ...(step.config || {}) } })),
     });
     setBuilderOpen(true);
   };
@@ -446,7 +446,7 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ role, onNotify }
         <div className="flex items-center gap-2 self-start">
           <button
             type="button"
-            onClick={load}
+            onClick={() => load()}
             disabled={loading}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
           >
@@ -485,7 +485,7 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ role, onNotify }
                     <p className="mt-2 max-w-3xl text-sm text-slate-600">{workflow.description}</p>
                   )}
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {workflow.steps.map((step, index) => (
+                    {(workflow.steps || []).map((step, index) => (
                       <React.Fragment key={step.id || index}>
                         <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium ${
                           step.type === 'condition'
@@ -497,10 +497,10 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ role, onNotify }
                           {step.type === 'condition' ? <GitBranch className="h-3 w-3" /> : step.type === 'delay' ? <Clock className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
                           {stepLabel(step)}
                         </span>
-                        {index < workflow.steps.length - 1 && <span className="text-slate-300">→</span>}
+                        {index < (workflow.steps?.length || 0) - 1 && <span className="text-slate-300">→</span>}
                       </React.Fragment>
                     ))}
-                    {workflow.steps.length === 0 && <span className="text-xs text-slate-400">No steps yet</span>}
+                    {(!workflow.steps || workflow.steps.length === 0) && <span className="text-xs text-slate-400">No steps yet</span>}
                   </div>
                   <div className="mt-3 text-[11px] text-slate-400">
                     Last triggered: {formatDate(workflow.last_triggered_at)}

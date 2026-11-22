@@ -172,10 +172,10 @@ export const WebsitesView: React.FC<WebsitesViewProps> = ({
       setCreateModalOpen(false);
       resetForm();
       await fetchSites();
-      // Open integration modal for quick snippet copy
-      setSnippetSite(newSite);
       if (newSite.verification_required) {
         openVerification(newSite);
+      } else {
+        setSnippetSite(newSite);
       }
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to create website');
@@ -266,7 +266,7 @@ export const WebsitesView: React.FC<WebsitesViewProps> = ({
     setEditSite(site);
     setName(site.name);
     setPrimaryDomain(site.primary_domain);
-    setAllowedDomainsStr(site.allowed_domains.join(', '));
+    setAllowedDomainsStr((site.allowed_domains || []).join(', '));
     setStatus(site.status);
     setPublisherId(site.publisher_id || '');
     setDefaultDisclosure(site.default_disclosure_text || '');
@@ -286,10 +286,20 @@ export const WebsitesView: React.FC<WebsitesViewProps> = ({
   };
 
   const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(id);
-    setTimeout(() => setCopiedKey(null), 2000);
-    onNotify('info', 'Copied to clipboard');
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => {
+          setCopiedKey(id);
+          setTimeout(() => setCopiedKey(null), 2000);
+          onNotify('info', 'Copied to clipboard');
+        },
+        () => {
+          onNotify('error', 'Failed to copy to clipboard');
+        },
+      );
+    } else {
+      onNotify('error', 'Clipboard not supported in this browser');
+    }
   };
 
   const getOrigin = () => {
@@ -496,7 +506,7 @@ export default function Layout({ children }) {
 
                     <td className="px-6 py-4">
                       <div className="flex flex-wrap gap-1 max-w-xs">
-                        {site.allowed_domains.map((dom, i) => (
+                        {(site.allowed_domains || []).map((dom, i) => (
                           <span
                             key={i}
                             className="text-[11px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200"
@@ -957,7 +967,7 @@ export default function Layout({ children }) {
               <div className="font-semibold text-slate-800">Public Site Key</div>
               <div className="flex items-center justify-between">
                 <code className="font-mono text-blue-700">{snippetSite.public_site_key}</code>
-                <span className="text-[11px] text-slate-400">Allowed on: {snippetSite.allowed_domains.join(', ')}</span>
+                <span className="text-[11px] text-slate-400">Allowed on: {(snippetSite.allowed_domains || []).join(', ')}</span>
               </div>
             </div>
           </div>

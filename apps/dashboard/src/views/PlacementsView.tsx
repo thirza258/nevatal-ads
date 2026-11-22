@@ -200,10 +200,20 @@ export const PlacementsView: React.FC<PlacementsViewProps> = ({
 
   const copyMarkup = (key: string) => {
     const markup = `<div data-adcontrol-placement="${key}"></div>`;
-    navigator.clipboard.writeText(markup);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 2000);
-    onNotify('info', `Copied embed markup for ${key}`);
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(markup).then(
+        () => {
+          setCopiedKey(key);
+          setTimeout(() => setCopiedKey(null), 2000);
+          onNotify('info', `Copied embed markup for ${key}`);
+        },
+        () => {
+          onNotify('error', 'Failed to copy to clipboard');
+        },
+      );
+    } else {
+      onNotify('error', 'Clipboard not supported in this browser');
+    }
   };
 
   const getSiteName = (id: string) => {

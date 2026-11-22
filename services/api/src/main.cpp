@@ -265,38 +265,44 @@ int main(int argc, char** argv) {
         auto last_automation = clock::now() - std::chrono::minutes(1); // run immediately
 
         while (!g_stop) {
-            if (clock::now() - last_automation >= std::chrono::seconds(30)) {
-                int automation_processed = adcontrol::run_automation_tick(*db);
-                if (automation_processed > 0) {
-                    std::cout << "[Automation] Processed " << automation_processed
-                              << " workflow run(s)." << std::endl;
-                }
-                last_automation = clock::now();
-            }
-
-            if (clock::now() - last_maintenance >= std::chrono::hours(1)) {
-                if (event_retention_days > 0) {
-                    int purged = db->purge_events_older_than(event_retention_days);
-                    if (purged > 0) {
-                        std::cout << "[Retention] Purged " << purged
-                                  << " events older than " << event_retention_days << " days." << std::endl;
+            try {
+                if (clock::now() - last_automation >= std::chrono::seconds(30)) {
+                    int automation_processed = adcontrol::run_automation_tick(*db);
+                    if (automation_processed > 0) {
+                        std::cout << "[Automation] Processed " << automation_processed
+                                  << " workflow run(s)." << std::endl;
                     }
+                    last_automation = clock::now();
                 }
-                int advanced = db->advance_campaign_states(adcontrol::utils::get_current_iso8601());
-                if (advanced > 0) {
-                    std::cout << "[Scheduler] Advanced " << advanced << " campaign state(s)." << std::endl;
-                }
-                int optimized = db->optimize_experiments(adcontrol::utils::get_current_iso8601());
-                if (optimized > 0) {
-                    std::cout << "[Optimizer] Updated " << optimized << " experiment(s)." << std::endl;
-                }
-                last_maintenance = clock::now();
-            }
 
-            if (backup_interval_hours > 0 &&
-                clock::now() - last_backup >= std::chrono::hours(backup_interval_hours)) {
-                create_backup(*db, backup_dir, backup_retention, "scheduled");
-                last_backup = clock::now();
+                if (clock::now() - last_maintenance >= std::chrono::hours(1)) {
+                    if (event_retention_days > 0) {
+                        int purged = db->purge_events_older_than(event_retention_days);
+                        if (purged > 0) {
+                            std::cout << "[Retention] Purged " << purged
+                                      << " events older than " << event_retention_days << " days." << std::endl;
+                        }
+                    }
+                    int advanced = db->advance_campaign_states(adcontrol::utils::get_current_iso8601());
+                    if (advanced > 0) {
+                        std::cout << "[Scheduler] Advanced " << advanced << " campaign state(s)." << std::endl;
+                    }
+                    int optimized = db->optimize_experiments(adcontrol::utils::get_current_iso8601());
+                    if (optimized > 0) {
+                        std::cout << "[Optimizer] Updated " << optimized << " experiment(s)." << std::endl;
+                    }
+                    last_maintenance = clock::now();
+                }
+
+                if (backup_interval_hours > 0 &&
+                    clock::now() - last_backup >= std::chrono::hours(backup_interval_hours)) {
+                    create_backup(*db, backup_dir, backup_retention, "scheduled");
+                    last_backup = clock::now();
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "[Maintenance] Exception in background loop: " << e.what() << std::endl;
+            } catch (...) {
+                std::cerr << "[Maintenance] Unknown exception in background loop" << std::endl;
             }
 
             for (int i = 0; i < 60 && !g_stop; ++i) {

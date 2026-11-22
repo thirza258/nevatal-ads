@@ -97,7 +97,6 @@
   const IMPRESSION_MS = 1_000;
   const MIN_REFRESH_MS = 15_000;
   const MAX_REFRESH_MS = 300_000;
-  const VISITOR_STORAGE_KEY = 'adcontrol_session_v1';
   const FREQUENCY_STORAGE_PREFIX = 'adcontrol_freq_v1:';
 
   const win = window as unknown as Record<string, unknown> & Window;
@@ -179,16 +178,13 @@
     return 'imp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 14);
   }
 
+  let inMemorySessionVisitorId = '';
+
   function sessionVisitorId(): string {
-    try {
-      const existing = window.sessionStorage.getItem(VISITOR_STORAGE_KEY);
-      if (existing && /^[A-Za-z0-9._:-]{8,128}$/.test(existing)) return existing;
-      const generated = generateEventId().replace(/^imp-/, 'acs-');
-      window.sessionStorage.setItem(VISITOR_STORAGE_KEY, generated);
-      return generated;
-    } catch (_) {
-      return '';
+    if (!inMemorySessionVisitorId) {
+      inMemorySessionVisitorId = generateEventId().replace(/^imp-/, 'acs-');
     }
+    return inMemorySessionVisitorId;
   }
 
   function deliveryContextParams(): string {

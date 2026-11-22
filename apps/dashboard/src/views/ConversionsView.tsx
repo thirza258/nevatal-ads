@@ -159,10 +159,10 @@ export const ConversionsView: React.FC<ConversionsViewProps> = ({ role, onNotify
           end_date: endDate,
         }),
       ]);
-      setSources(sourceRows);
-      setSummary(summaryData);
-      setConversions(conversionRows);
-      setReconciliation(reconciliationRows);
+      setSources(sourceRows || []);
+      setSummary(summaryData || EMPTY_SUMMARY);
+      setConversions(conversionRows || []);
+      setReconciliation(reconciliationRows || []);
     } catch (err: any) {
       onNotify('error', err?.message || 'Failed to load conversion data');
     } finally {
@@ -202,7 +202,8 @@ export const ConversionsView: React.FC<ConversionsViewProps> = ({ role, onNotify
     return offers.filter((offer) => offer.publisher_id === site.publisher_id);
   }, [offers, sites, sourceSite]);
 
-  const funnelMax = Math.max(1, ...summary.funnel.map((step) => step.count));
+  const funnelSteps = Array.isArray(summary?.funnel) ? summary.funnel : [];
+  const funnelMax = Math.max(1, ...funnelSteps.map((step) => step.count || 0));
 
   const openSourceModal = () => {
     setSourceModal(true);
@@ -321,31 +322,31 @@ export const ConversionsView: React.FC<ConversionsViewProps> = ({ role, onNotify
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Conversions</div>
-          <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{formatNumber(summary.conversions)}</div>
-          <div className="mt-1 text-xs text-slate-500">{summary.pending_conversions} awaiting review</div>
+          <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{formatNumber(summary?.conversions ?? 0)}</div>
+          <div className="mt-1 text-xs text-slate-500">{summary?.pending_conversions ?? 0} awaiting review</div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Approved revenue</div>
           <div className="mt-1 text-2xl font-bold tabular-nums text-emerald-700">
-            {formatMoney(summary.approved_value_cents)}
+            {formatMoney(summary?.approved_value_cents ?? 0)}
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {formatMoney(summary.approved_commission_cents)} commission
+            {formatMoney(summary?.approved_commission_cents ?? 0)} commission
           </div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Click → conversion</div>
           <div className="mt-1 text-2xl font-bold tabular-nums text-blue-700">
-            {summary.conversion_rate.toFixed(2)}%
+            {(summary?.conversion_rate ?? 0).toFixed(2)}%
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {formatNumber(summary.clicks)} clicks / {formatNumber(summary.impressions)} impressions
+            {formatNumber(summary?.clicks ?? 0)} clicks / {formatNumber(summary?.impressions ?? 0)} impressions
           </div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Commission reported</div>
           <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
-            {formatMoney(summary.commission_cents)}
+            {formatMoney(summary?.commission_cents ?? 0)}
           </div>
           <div className="mt-1 text-xs text-slate-500">Across all reconciliation states</div>
         </div>
@@ -358,14 +359,15 @@ export const ConversionsView: React.FC<ConversionsViewProps> = ({ role, onNotify
             <span className="text-[11px] text-slate-400">Selected period</span>
           </div>
           <div className="mt-4 space-y-3">
-            {summary.funnel.map((step, index) => {
-              const width = Math.max(2, (step.count / funnelMax) * 100);
-              const label = step.stage.replace(/_/g, ' ');
+            {funnelSteps.map((step, index) => {
+              const count = step?.count ?? 0;
+              const width = Math.max(2, (count / funnelMax) * 100);
+              const label = (step?.stage || '').replace(/_/g, ' ');
               return (
-                <div key={step.stage}>
+                <div key={step?.stage || index}>
                   <div className="mb-1 flex items-center justify-between text-xs">
                     <span className="font-medium capitalize text-slate-700">{label}</span>
-                    <span className="tabular-nums text-slate-500">{formatNumber(step.count)}</span>
+                    <span className="tabular-nums text-slate-500">{formatNumber(count)}</span>
                   </div>
                   <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
                     <div
@@ -378,7 +380,7 @@ export const ConversionsView: React.FC<ConversionsViewProps> = ({ role, onNotify
                 </div>
               );
             })}
-            {summary.funnel.length === 0 && (
+            {funnelSteps.length === 0 && (
               <p className="text-sm text-slate-500">No funnel data for this period.</p>
             )}
           </div>
@@ -387,10 +389,10 @@ export const ConversionsView: React.FC<ConversionsViewProps> = ({ role, onNotify
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <h3 className="text-sm font-bold text-slate-800">Data provenance</h3>
           <dl className="mt-3 space-y-2 text-xs">
-            {Object.entries(summary.provenance).map(([key, value]) => (
+            {Object.entries(summary?.provenance || {}).map(([key, value]) => (
               <div key={key} className="flex items-start justify-between gap-3">
                 <dt className="capitalize text-slate-500">{key}</dt>
-                <dd className="max-w-[12rem] text-right font-medium text-slate-700">{value.replace(/_/g, ' ')}</dd>
+                <dd className="max-w-[12rem] text-right font-medium text-slate-700">{String(value || '').replace(/_/g, ' ')}</dd>
               </div>
             ))}
           </dl>

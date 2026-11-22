@@ -792,11 +792,11 @@ export const TopicsPage: React.FC = () => {
           <ErrorState message={formatError(topics.error)} onRetry={topics.reload} />
         ) : topics.loading ? (
           <LoadingState label="Loading topics" />
-        ) : (topics.data?.topics.length || 0) === 0 ? (
+        ) : (topics.data?.topics?.length || 0) === 0 ? (
           <EmptyState title="No topics are published yet" />
         ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {topics.data?.topics.map((topic) => (
+            {(topics.data?.topics || []).map((topic) => (
               <TopicCard key={topic.id} topic={topic} />
             ))}
           </div>
@@ -857,13 +857,13 @@ export const TopicPage: React.FC<{ slug: string }> = ({ slug }) => {
         <p className="mt-3 text-base leading-7 text-slate-600">{topic.data.topic.description}</p>
       </div>
       <div className="mt-8">
-        {topic.data.courses.length === 0 ? (
+        {(topic.data?.courses?.length || 0) === 0 ? (
           <EmptyState title="No published courses in this topic yet">
             <Link to="/courses" className="lc-link">Browse all courses</Link>
           </EmptyState>
         ) : (
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {topic.data.courses.map((course) => (
+            {(topic.data?.courses || []).map((course) => (
               <CourseCard key={course.id} course={course} />
             ))}
           </div>
@@ -895,11 +895,11 @@ export const PathsPage: React.FC = () => {
           <ErrorState message={formatError(paths.error)} onRetry={paths.reload} />
         ) : paths.loading ? (
           <LoadingState label="Loading learning paths" />
-        ) : (paths.data?.learning_paths.length || 0) === 0 ? (
+        ) : (paths.data?.learning_paths?.length || 0) === 0 ? (
           <EmptyState title="No learning paths are published yet" />
         ) : (
           <div className="space-y-6">
-            {paths.data?.learning_paths.map((path) => (
+            {(paths.data?.learning_paths || []).map((path) => (
               <LearningPathCard key={path.id} path={path} />
             ))}
           </div>
